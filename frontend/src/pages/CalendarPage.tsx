@@ -130,15 +130,6 @@ export const CalendarPage = () => {
     }
   };
 
-  const _handleDeleteTask = async (taskId: string, _taskName: string) => {
-    try {
-      await taskApi.deleteTask(taskId);
-      await fetchData();
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'タスクの削除に失敗しました');
-    }
-  };
-
   const handleStartEditTaskName = (taskId: string, currentName: string) => {
     setEditingTaskId(taskId);
     setEditingTaskName(currentName);
@@ -397,63 +388,6 @@ export const CalendarPage = () => {
       await fetchData();
     } catch (err) {
       setError(err instanceof Error ? err.message : 'タスクの完了/未完了の切り替えに失敗しました');
-    }
-  };
-
-  const _handleLoadSampleSchedule = async () => {
-    if (!confirm('全てのタスクを削除してサンプルスケジュールを読み込みますか？')) {
-      return;
-    }
-
-    try {
-      // 全タスクを削除
-      for (const task of tasks) {
-        await taskApi.deleteTask(task.id);
-      }
-
-      // サンプルタスクを作成
-      const sampleTasks = [
-        { name: '日次仕訳入力', startDay: 1, endDay: 25 },
-        { name: '経費精算処理', startDay: 1, endDay: 10 },
-        { name: '売掛金確認', startDay: 1, endDay: 5 },
-        { name: '入金確認', startDay: 1, endDay: 28 },
-        { name: '給与計算', startDay: 20, endDay: 25 },
-        { name: '請求書発行', startDay: 25, endDay: 28 },
-        { name: '買掛金支払処理', startDay: 26, endDay: 28 },
-        { name: '月次決算処理', startDay: 28, endDay: 31 },
-      ];
-
-      for (let i = 0; i < sampleTasks.length; i++) {
-        const sample = sampleTasks[i];
-
-        // タスクを作成
-        const response = await taskApi.createTask(sample.name, year, month, i + 1);
-        const newTask = response.task;
-
-        // 期間を設定（月末日を考慮）
-        const daysInCurrentMonth = new Date(year, month, 0).getDate();
-        const actualEndDay = Math.min(sample.endDay, daysInCurrentMonth);
-
-        const startDateStr = `${year}-${String(month).padStart(2, '0')}-${String(sample.startDay).padStart(2, '0')}`;
-        const endDateStr = `${year}-${String(month).padStart(2, '0')}-${String(actualEndDay).padStart(2, '0')}`;
-
-        // タスクの期間を更新
-        await taskApi.updateTask(newTask.id, {
-          startDate: startDateStr,
-          endDate: endDateStr,
-        });
-
-        // 期間内の全ての日にチェックを入れる
-        for (let d = sample.startDay; d <= actualEndDay; d++) {
-          const targetDate = `${year}-${String(month).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
-          await completionApi.upsertCompletion(newTask.id, targetDate, true);
-        }
-      }
-
-      await fetchData();
-      alert('サンプルスケジュールを読み込みました');
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'サンプルスケジュールの読み込みに失敗しました');
     }
   };
 
