@@ -22,7 +22,7 @@ app.use('/api/completions', completionRoutes);
 app.use('/api/templates', templateRoutes);
 
 // Health check
-app.get('/health', (req, res) => {
+app.get('/health', (_req, res) => {
   res.json({ status: 'ok' });
 });
 
