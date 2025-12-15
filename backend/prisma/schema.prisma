@@ -1,0 +1,73 @@
+// Prisma schema file
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id           String           @id @default(uuid())
+  email        String           @unique
+  passwordHash String           @map("password_hash")
+  username     String
+  createdAt    DateTime         @default(now()) @map("created_at")
+  updatedAt    DateTime         @updatedAt @map("updated_at")
+  completions  TaskCompletion[]
+  templates    TaskTemplate[]
+
+  @@map("users")
+}
+
+model Task {
+  id           String           @id @default(uuid())
+  name         String
+  year         Int
+  month        Int
+  displayOrder Int              @map("display_order")
+  startDate    DateTime?        @db.Date @map("start_date")
+  endDate      DateTime?        @db.Date @map("end_date")
+  isActive     Boolean          @default(true) @map("is_active")
+  isCompleted  Boolean          @default(false) @map("is_completed")
+  createdAt    DateTime         @default(now()) @map("created_at")
+  updatedAt    DateTime         @updatedAt @map("updated_at")
+  completions  TaskCompletion[]
+
+  @@map("tasks")
+}
+
+model TaskCompletion {
+  id          String    @id @default(uuid())
+  taskId      String    @map("task_id")
+  userId      String    @map("user_id")
+  targetDate  DateTime  @db.Date @map("target_date")
+  isCompleted Boolean   @default(false) @map("is_completed")
+  completedAt DateTime? @map("completed_at")
+  createdAt   DateTime  @default(now()) @map("created_at")
+  updatedAt   DateTime  @updatedAt @map("updated_at")
+
+  task Task @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([taskId, userId, targetDate])
+  @@map("task_completions")
+}
+
+model TaskTemplate {
+  id           String   @id @default(uuid())
+  userId       String   @map("user_id")
+  templateName String   @map("template_name")
+  taskName     String   @map("task_name")
+  displayOrder Int      @map("display_order")
+  startDay     Int?     @map("start_day")
+  endDay       Int?     @map("end_day")
+  createdAt    DateTime @default(now()) @map("created_at")
+  updatedAt    DateTime @updatedAt @map("updated_at")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, templateName, taskName])
+  @@map("task_templates")
+}
