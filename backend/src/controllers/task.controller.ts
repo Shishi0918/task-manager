@@ -71,7 +71,7 @@ export const createTask = async (
     res.status(201).json({ task });
   } catch (error) {
     if (error instanceof z.ZodError) {
-      res.status(400).json({ error: error.errors });
+      res.status(400).json({ error: error.issues });
       return;
     }
     console.error('Create task error:', error);
@@ -102,7 +102,7 @@ export const updateTask = async (
     res.json({ task });
   } catch (error) {
     if (error instanceof z.ZodError) {
-      res.status(400).json({ error: error.errors });
+      res.status(400).json({ error: error.issues });
       return;
     }
     console.error('Update task error:', error);

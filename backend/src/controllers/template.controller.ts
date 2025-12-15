@@ -116,7 +116,7 @@ export const saveTemplate = async (
     });
   } catch (error) {
     if (error instanceof z.ZodError) {
-      res.status(400).json({ error: error.errors });
+      res.status(400).json({ error: error.issues });
       return;
     }
     console.error('Save template error:', error);
@@ -189,7 +189,7 @@ export const applyTemplate = async (
     });
   } catch (error) {
     if (error instanceof z.ZodError) {
-      res.status(400).json({ error: error.errors });
+      res.status(400).json({ error: error.issues });
       return;
     }
     console.error('Apply template error:', error);
@@ -224,7 +224,7 @@ export const deleteTemplate = async (
     });
   } catch (error) {
     if (error instanceof z.ZodError) {
-      res.status(400).json({ error: error.errors });
+      res.status(400).json({ error: error.issues });
       return;
     }
     console.error('Delete template error:', error);

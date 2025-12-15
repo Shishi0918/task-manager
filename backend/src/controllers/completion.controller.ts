@@ -118,7 +118,7 @@ export const upsertCompletion = async (
     });
   } catch (error) {
     if (error instanceof z.ZodError) {
-      res.status(400).json({ error: error.errors });
+      res.status(400).json({ error: error.issues });
       return;
     }
     console.error('Upsert completion error:', error);
