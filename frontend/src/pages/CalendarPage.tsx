@@ -11,7 +11,7 @@ export const CalendarPage = () => {
   const [year, setYear] = useState(new Date().getFullYear());
   const [month, setMonth] = useState(new Date().getMonth() + 1);
   const [tasks, setTasks] = useState<TaskWithCompletions[]>([]);
-  const [stats, setStats] = useState<Stats | null>(null);
+  const [_stats, setStats] = useState<Stats | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [isModalOpen, setIsModalOpen] = useState(false);
@@ -130,7 +130,7 @@ export const CalendarPage = () => {
     }
   };
 
-  const handleDeleteTask = async (taskId: string, taskName: string) => {
+  const _handleDeleteTask = async (taskId: string, _taskName: string) => {
     try {
       await taskApi.deleteTask(taskId);
       await fetchData();
@@ -400,7 +400,7 @@ export const CalendarPage = () => {
     }
   };
 
-  const handleLoadSampleSchedule = async () => {
+  const _handleLoadSampleSchedule = async () => {
     if (!confirm('全てのタスクを削除してサンプルスケジュールを読み込みますか？')) {
       return;
     }

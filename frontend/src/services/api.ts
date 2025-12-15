@@ -9,12 +9,15 @@ import type {
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:3001';
 
 class ApiError extends Error {
+  status?: number;
+
   constructor(
     message: string,
-    public status?: number
+    status?: number
   ) {
     super(message);
     this.name = 'ApiError';
+    this.status = status;
   }
 }
 
