@@ -31,6 +31,17 @@ app.get('/api/health', (_req, res) => {
   res.json({ status: 'ok' });
 });
 
+// Debug endpoint
+app.get('/api/debug', (_req: Request, res: Response) => {
+  res.json({
+    hasDbUrl: !!process.env.DATABASE_URL,
+    dbUrlPrefix: process.env.DATABASE_URL?.substring(0, 30) + '...',
+    hasJwtSecret: !!process.env.JWT_SECRET,
+    hasStripeKey: !!process.env.STRIPE_SECRET_KEY,
+    nodeEnv: process.env.NODE_ENV,
+  });
+});
+
 // Vercel Serverless Function handler
 export default async (req: Request, res: Response) => {
   await new Promise<void>((resolve) => {
