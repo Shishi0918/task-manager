@@ -33,11 +33,16 @@ export const register = async (req: Request, res: Response): Promise<void> => {
 
     const passwordHash = await hashPassword(password);
 
+    // Set trial to 7 days from now
+    const trialEndsAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000);
+
     const user = await prisma.user.create({
       data: {
         email,
         passwordHash,
         username,
+        trialEndsAt,
+        subscriptionStatus: 'TRIALING',
       },
     });
 

@@ -50,3 +50,40 @@ export interface Stats {
   totalPossibleCompletions: number;
   completionRate: number;
 }
+
+export interface SubscriptionStatus {
+  status: 'TRIALING' | 'ACTIVE' | 'PAST_DUE' | 'CANCELED' | 'EXPIRED';
+  planType: 'INDIVIDUAL' | 'ORGANIZATION';
+  trialEndsAt: string | null;
+  trialDaysRemaining: number;
+  currentPeriodEnd: string | null;
+  isActive: boolean;
+  organizationName: string | null;
+  userRole: 'ADMIN' | 'MEMBER';
+}
+
+export interface Organization {
+  id: string;
+  name: string;
+  subscriptionStatus: 'TRIALING' | 'ACTIVE' | 'PAST_DUE' | 'CANCELED' | 'EXPIRED';
+  trialEndsAt: string | null;
+  currentPeriodEnd: string | null;
+  maxUsers: number;
+  users: OrganizationMember[];
+  invitations: Invitation[];
+}
+
+export interface OrganizationMember {
+  id: string;
+  email: string;
+  username: string;
+  role: 'ADMIN' | 'MEMBER';
+  createdAt: string;
+}
+
+export interface Invitation {
+  id: string;
+  email: string;
+  expiresAt: string;
+  createdAt: string;
+}

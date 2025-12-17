@@ -5,6 +5,23 @@ import { AuthRequest } from '../types/index.js';
 
 const prisma = new PrismaClient();
 
+// Helper function to get the previous business day (skip weekends)
+const getPreviousBusinessDay = (year: number, month: number, day: number): number => {
+  const date = new Date(year, month - 1, day);
+  const dayOfWeek = date.getDay();
+
+  // If it's Saturday (6), go back 1 day to Friday
+  if (dayOfWeek === 6) {
+    return Math.max(1, day - 1);
+  }
+  // If it's Sunday (0), go back 2 days to Friday
+  if (dayOfWeek === 0) {
+    return Math.max(1, day - 2);
+  }
+  // Otherwise it's a weekday, return as is
+  return day;
+};
+
 const saveTemplateSchema = z.object({
   templateName: z.string().min(1),
 });
@@ -17,6 +34,26 @@ const applyTemplateSchema = z.object({
 
 const deleteTemplateSchema = z.object({
   templateName: z.string().min(1),
+});
+
+const saveMonthlyTemplateSchema = z.object({
+  templateName: z.string().min(1),
+  tasks: z.array(z.object({
+    name: z.string(),
+    displayOrder: z.number().int(),
+    startDay: z.number().int().min(1).max(31).nullable(),
+    endDay: z.number().int().min(1).max(31).nullable(),
+  })),
+});
+
+const saveYearlyTemplateSchema = z.object({
+  templateName: z.string().min(1),
+  tasks: z.array(z.object({
+    name: z.string(),
+    displayOrder: z.number().int(),
+    startMonth: z.number().int().min(1).max(12).nullable(),
+    endMonth: z.number().int().min(101).max(3131).nullable(), // (startDay * 100 + endDay) の形式: 101〜3131
+  })),
 });
 
 export const getTemplates = async (
@@ -39,6 +76,49 @@ export const getTemplates = async (
     res.json({ templates });
   } catch (error) {
     console.error('Get templates error:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+};
+
+export const getTemplateDetails = async (
+  req: AuthRequest,
+  res: Response
+): Promise<void> => {
+  try {
+    const { templateName } = req.params;
+
+    if (!templateName) {
+      res.status(400).json({ error: 'Template name is required' });
+      return;
+    }
+
+    // 指定されたテンプレートの全タスクを取得
+    const templates = await prisma.taskTemplate.findMany({
+      where: {
+        userId: req.userId!,
+        templateName: decodeURIComponent(templateName),
+      },
+      orderBy: { displayOrder: 'asc' },
+    });
+
+    if (templates.length === 0) {
+      res.status(404).json({ error: 'Template not found' });
+      return;
+    }
+
+    const tasks = templates.map((template) => ({
+      name: template.taskName,
+      displayOrder: template.displayOrder,
+      startDay: template.startDay,
+      endDay: template.endDay,
+    }));
+
+    res.json({
+      templateName: templates[0].templateName,
+      tasks,
+    });
+  } catch (error) {
+    console.error('Get template details error:', error);
     res.status(500).json({ error: 'Internal server error' });
   }
 };
@@ -163,8 +243,14 @@ export const applyTemplate = async (
 
       if (template.startDay && template.endDay) {
         // 月末日を超えないように調整
-        const adjustedStartDay = Math.min(template.startDay, daysInMonth);
-        const adjustedEndDay = Math.min(template.endDay, daysInMonth);
+        let adjustedStartDay = Math.min(template.startDay, daysInMonth);
+        let adjustedEndDay = Math.min(template.endDay, daysInMonth);
+
+        // 開始日が土日の場合、直近の前の営業日に調整
+        adjustedStartDay = getPreviousBusinessDay(year, month, adjustedStartDay);
+
+        // 終了日も同様に調整（開始日より前にならないように）
+        adjustedEndDay = Math.max(adjustedStartDay, adjustedEndDay);
 
         startDateStr = `${year}-${String(month).padStart(2, '0')}-${String(adjustedStartDay).padStart(2, '0')}`;
         endDateStr = `${year}-${String(month).padStart(2, '0')}-${String(adjustedEndDay).padStart(2, '0')}`;
@@ -193,6 +279,143 @@ export const applyTemplate = async (
       return;
     }
     console.error('Apply template error:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+};
+
+export const saveMonthlyTemplate = async (
+  req: AuthRequest,
+  res: Response
+): Promise<void> => {
+  try {
+    const { templateName, tasks } = saveMonthlyTemplateSchema.parse(req.body);
+
+    // 同名の既存テンプレートを削除
+    await prisma.taskTemplate.deleteMany({
+      where: {
+        userId: req.userId!,
+        templateName,
+      },
+    });
+
+    // tasksが空でない場合のみ新しいテンプレートを作成
+    if (tasks.length > 0) {
+      // 新しいテンプレートを作成
+      const templates = tasks.map((task) => ({
+        userId: req.userId!,
+        templateName,
+        taskName: task.name,
+        displayOrder: task.displayOrder,
+        startDay: task.startDay,
+        endDay: task.endDay,
+      }));
+
+      await prisma.taskTemplate.createMany({
+        data: templates,
+      });
+    }
+
+    res.json({
+      message: 'Monthly template saved successfully',
+      templateName,
+      count: tasks.length,
+    });
+  } catch (error) {
+    if (error instanceof z.ZodError) {
+      res.status(400).json({ error: error.issues });
+      return;
+    }
+    console.error('Save monthly template error:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+};
+
+export const saveYearlyTemplate = async (
+  req: AuthRequest,
+  res: Response
+): Promise<void> => {
+  try {
+    const { templateName, tasks } = saveYearlyTemplateSchema.parse(req.body);
+
+    // 同名の既存テンプレートを削除
+    await prisma.taskTemplate.deleteMany({
+      where: {
+        userId: req.userId!,
+        templateName,
+      },
+    });
+
+    // tasksが空でない場合のみ新しいテンプレートを作成
+    if (tasks.length > 0) {
+      // 新しいテンプレートを作成（startMonth/endMonthをstartDay/endDayに保存）
+      const templates = tasks.map((task) => ({
+        userId: req.userId!,
+        templateName,
+        taskName: task.name,
+        displayOrder: task.displayOrder,
+        startDay: task.startMonth,
+        endDay: task.endMonth,
+      }));
+
+      await prisma.taskTemplate.createMany({
+        data: templates,
+      });
+    }
+
+    res.json({
+      message: 'Yearly template saved successfully',
+      templateName,
+      count: tasks.length,
+    });
+  } catch (error) {
+    if (error instanceof z.ZodError) {
+      res.status(400).json({ error: error.issues });
+      return;
+    }
+    console.error('Save yearly template error:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+};
+
+export const getYearlyTemplateDetails = async (
+  req: AuthRequest,
+  res: Response
+): Promise<void> => {
+  try {
+    const { templateName } = req.params;
+
+    if (!templateName) {
+      res.status(400).json({ error: 'Template name is required' });
+      return;
+    }
+
+    // 指定されたテンプレートの全タスクを取得
+    const templates = await prisma.taskTemplate.findMany({
+      where: {
+        userId: req.userId!,
+        templateName: decodeURIComponent(templateName),
+      },
+      orderBy: { displayOrder: 'asc' },
+    });
+
+    if (templates.length === 0) {
+      res.status(404).json({ error: 'Template not found' });
+      return;
+    }
+
+    const tasks = templates.map((template) => ({
+      name: template.taskName,
+      displayOrder: template.displayOrder,
+      startMonth: template.startDay,
+      endMonth: template.endDay,
+    }));
+
+    res.json({
+      templateName: templates[0].templateName,
+      tasks,
+    });
+  } catch (error) {
+    console.error('Get yearly template details error:', error);
     res.status(500).json({ error: 'Internal server error' });
   }
 };

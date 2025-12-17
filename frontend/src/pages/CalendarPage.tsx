@@ -1,13 +1,16 @@
 import { useState, useEffect } from 'react';
-import { useAuth } from '../contexts/AuthContext';
-import { completionApi, taskApi, templateApi } from '../services/api';
+import { completionApi, taskApi } from '../services/api';
 import type { TaskWithCompletions, Stats } from '../types';
 import { TaskModal } from '../components/TaskModal';
-import { TemplateSaveModal } from '../components/TemplateSaveModal';
-import { TemplateSelectModal } from '../components/TemplateSelectModal';
+import { AccountMenu } from '../components/AccountMenu';
 
-export const CalendarPage = () => {
-  const { user, logout } = useAuth();
+interface CalendarPageProps {
+  onNavigateToTemplateCreator: () => void;
+  onNavigateToYearlyTaskCreator: () => void;
+  onNavigateToOrganization?: () => void;
+}
+
+export const CalendarPage = ({ onNavigateToTemplateCreator, onNavigateToYearlyTaskCreator, onNavigateToOrganization }: CalendarPageProps) => {
   const [year, setYear] = useState(new Date().getFullYear());
   const [month, setMonth] = useState(new Date().getMonth() + 1);
   const [tasks, setTasks] = useState<TaskWithCompletions[]>([]);
@@ -15,8 +18,6 @@ export const CalendarPage = () => {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [isModalOpen, setIsModalOpen] = useState(false);
-  const [isSaveTemplateModalOpen, setIsSaveTemplateModalOpen] = useState(false);
-  const [isSelectTemplateModalOpen, setIsSelectTemplateModalOpen] = useState(false);
   const [selectedStartDays, setSelectedStartDays] = useState<Record<string, number | null>>({});
   const [hoverDays, setHoverDays] = useState<Record<string, number | null>>({});
   const [checkedTasks, setCheckedTasks] = useState<Set<string>>(new Set());
@@ -97,6 +98,16 @@ export const CalendarPage = () => {
       }
       return newSet;
     });
+  };
+
+  const handleToggleAllTasks = () => {
+    if (checkedTasks.size === tasks.length) {
+      // 全て選択されている場合は全解除
+      setCheckedTasks(new Set());
+    } else {
+      // 一部または何も選択されていない場合は全選択
+      setCheckedTasks(new Set(tasks.map(t => t.id)));
+    }
   };
 
   const handleBulkDelete = async () => {
@@ -391,38 +402,112 @@ export const CalendarPage = () => {
     }
   };
 
-  const handleSaveTemplate = () => {
-    if (tasks.length === 0) {
-      alert('保存するタスクがありません');
-      return;
-    }
-    setIsSaveTemplateModalOpen(true);
-  };
-
-  const handleSaveTemplateSubmit = async (templateName: string) => {
+  const handleApplyTemplate = async () => {
     try {
-      const result = await templateApi.saveTemplate(templateName, year, month);
-      alert(`テンプレート「${result.templateName}」を保存しました（${result.count}件のタスク）`);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'テンプレートの保存に失敗しました');
-    }
-  };
+      // localStorageから月次テンプレートと年次タスクを取得
+      const savedMonthlyTemplate = localStorage.getItem('monthlyTemplate');
+      const savedYearlyTasks = localStorage.getItem('yearlyTasks');
 
-  const handleApplyTemplate = () => {
-    setIsSelectTemplateModalOpen(true);
-  };
+      interface MonthlyTemplateTask {
+        id: string;
+        name: string;
+        displayOrder: number;
+        startDay: number | null;
+        endDay: number | null;
+      }
 
-  const handleApplyTemplateSubmit = async (templateName: string) => {
-    if (!confirm(`現在の月の全てのタスクを削除してテンプレート「${templateName}」を貼り付けますか？`)) {
-      return;
-    }
+      interface YearlyTask {
+        id: string;
+        name: string;
+        displayOrder: number;
+        implementationMonth: number | null;
+        startDay: number | null;
+        endDay: number | null;
+      }
 
-    try {
-      const result = await templateApi.applyTemplate(templateName, year, month);
+      const monthlyTemplateTasks: MonthlyTemplateTask[] = savedMonthlyTemplate ? JSON.parse(savedMonthlyTemplate) : [];
+      const yearlyTasks: YearlyTask[] = savedYearlyTasks ? JSON.parse(savedYearlyTasks) : [];
+
+      // 現在の月に一致する年次タスクをフィルタリング
+      const matchingYearlyTasks = yearlyTasks.filter((task) => task.implementationMonth === month);
+
+      const totalTaskCount = monthlyTemplateTasks.length + matchingYearlyTasks.length;
+
+      if (totalTaskCount === 0) {
+        alert('貼り付けるタスクがありません。先に「月次タスク作成」または「年次タスク作成」画面でタスクを作成してください。');
+        return;
+      }
+
+      const message = `月次タスク（${monthlyTemplateTasks.length}件）+ 年次タスク（${matchingYearlyTasks.length}件）= 合計${totalTaskCount}件のタスクを追加しますか？`;
+
+      if (!confirm(message)) {
+        return;
+      }
+
+      // 現在の最大displayOrderを取得
+      const maxDisplayOrder = tasks.length > 0
+        ? Math.max(...tasks.map(t => t.displayOrder))
+        : 0;
+
+      // その月の日数を取得
+      const daysInMonth = new Date(year, month, 0).getDate();
+
+      let addedCount = 0;
+
+      // 月次テンプレートから新しいタスクを作成
+      for (const templateTask of monthlyTemplateTasks) {
+        let startDateStr: string | undefined = undefined;
+        let endDateStr: string | undefined = undefined;
+
+        if (templateTask.startDay !== null && templateTask.endDay !== null) {
+          // 月末日を超えないように調整
+          const adjustedStartDay = Math.min(templateTask.startDay, daysInMonth);
+          const adjustedEndDay = Math.min(templateTask.endDay, daysInMonth);
+
+          startDateStr = `${year}-${String(month).padStart(2, '0')}-${String(adjustedStartDay).padStart(2, '0')}`;
+          endDateStr = `${year}-${String(month).padStart(2, '0')}-${String(adjustedEndDay).padStart(2, '0')}`;
+        }
+
+        await taskApi.createTask(
+          templateTask.name,
+          year,
+          month,
+          maxDisplayOrder + addedCount + 1,
+          startDateStr,
+          endDateStr
+        );
+        addedCount++;
+      }
+
+      // 年次タスクを月次タスクとして追加
+      for (const yearlyTask of matchingYearlyTasks) {
+        let startDateStr: string | undefined = undefined;
+        let endDateStr: string | undefined = undefined;
+
+        if (yearlyTask.startDay !== null && yearlyTask.endDay !== null) {
+          // 月末日を超えないように調整
+          const adjustedStartDay = Math.min(yearlyTask.startDay, daysInMonth);
+          const adjustedEndDay = Math.min(yearlyTask.endDay, daysInMonth);
+
+          startDateStr = `${year}-${String(month).padStart(2, '0')}-${String(adjustedStartDay).padStart(2, '0')}`;
+          endDateStr = `${year}-${String(month).padStart(2, '0')}-${String(adjustedEndDay).padStart(2, '0')}`;
+        }
+
+        await taskApi.createTask(
+          yearlyTask.name,
+          year,
+          month,
+          maxDisplayOrder + addedCount + 1,
+          startDateStr,
+          endDateStr
+        );
+        addedCount++;
+      }
+
+      alert(`タスクを追加しました（月次: ${monthlyTemplateTasks.length}件、年次: ${matchingYearlyTasks.length}件、合計: ${addedCount}件）`);
       await fetchData();
-      alert(`テンプレート「${result.templateName}」を適用しました（${result.count}件のタスク）`);
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'テンプレートの適用に失敗しました');
+      setError(err instanceof Error ? err.message : 'タスクの貼り付けに失敗しました');
     }
   };
 
@@ -471,18 +556,24 @@ export const CalendarPage = () => {
       <header className="bg-white shadow">
         <div className="max-w-full mx-auto px-4 sm:px-6 lg:px-8 py-4">
           <div className="flex justify-between items-center">
-            <h1 className="text-2xl font-bold text-gray-900">
-              月次タスク管理
-            </h1>
             <div className="flex items-center gap-4">
-              <span className="text-sm text-gray-600">{user?.username}</span>
+              <h1 className="text-2xl font-bold text-gray-900">
+                月次タスク管理
+              </h1>
               <button
-                onClick={logout}
-                className="text-sm text-indigo-600 hover:text-indigo-500"
+                onClick={onNavigateToTemplateCreator}
+                className="px-4 py-2 bg-green-600 text-white rounded hover:bg-green-700"
               >
-                ログアウト
+                📝 月次タスク作成
+              </button>
+              <button
+                onClick={onNavigateToYearlyTaskCreator}
+                className="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700"
+              >
+                📅 年次タスク作成
               </button>
             </div>
+            <AccountMenu onNavigateToOrganization={onNavigateToOrganization} />
           </div>
         </div>
       </header>
@@ -582,25 +673,25 @@ export const CalendarPage = () => {
               ➡️ 月次繰越
             </button>
             <button
-              onClick={handleSaveTemplate}
-              className="px-4 py-2 bg-purple-600 text-white rounded hover:bg-purple-700"
-            >
-              💾 テンプレート保存
-            </button>
-            <button
               onClick={handleApplyTemplate}
               className="px-4 py-2 bg-purple-600 text-white rounded hover:bg-purple-700"
             >
-              📋 テンプレート貼り付け
+              📋 タスク貼り付け
             </button>
           </div>
 
-          <div className="overflow-x-auto">
+          <div className="overflow-x-auto overflow-y-visible pb-4" style={{ scrollbarWidth: 'thin' }}>
             <table className="min-w-full border-collapse">
               <thead>
                 <tr>
                   <th className="border border-gray-300 px-1 py-1 bg-gray-50 sticky left-0 z-10 w-[32px] min-w-[32px]">
-                    <span className="sr-only">選択</span>
+                    <input
+                      type="checkbox"
+                      checked={tasks.length > 0 && checkedTasks.size === tasks.length}
+                      onChange={handleToggleAllTasks}
+                      className="w-4 h-4 cursor-pointer"
+                      title="全選択/全解除"
+                    />
                   </th>
                   <th className="border border-gray-300 px-2 py-1 bg-gray-50 sticky left-[32px] z-10 w-[80px] min-w-[80px]" style={{ writingMode: 'horizontal-tb', whiteSpace: 'nowrap' }}>
                     タスク
@@ -735,16 +826,6 @@ export const CalendarPage = () => {
         isOpen={isModalOpen}
         onClose={() => setIsModalOpen(false)}
         onSubmit={handleAddTask}
-      />
-      <TemplateSaveModal
-        isOpen={isSaveTemplateModalOpen}
-        onClose={() => setIsSaveTemplateModalOpen(false)}
-        onSubmit={handleSaveTemplateSubmit}
-      />
-      <TemplateSelectModal
-        isOpen={isSelectTemplateModalOpen}
-        onClose={() => setIsSelectTemplateModalOpen(false)}
-        onSelect={handleApplyTemplateSubmit}
       />
     </div>
   );
