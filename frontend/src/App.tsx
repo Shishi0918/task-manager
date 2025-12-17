@@ -51,7 +51,7 @@ function AppContent() {
   }
 
   if (currentPage === 'planSelection') {
-    return <PlanSelectionPage />;
+    return <PlanSelectionPage onBack={() => setCurrentPage('calendar')} />;
   }
 
   if (currentPage === 'organization') {

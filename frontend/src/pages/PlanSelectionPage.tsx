@@ -1,10 +1,12 @@
 import { useState } from 'react';
-import { useNavigate } from 'react-router-dom';
 import { subscriptionApi, organizationApi } from '../services/api';
 import { useSubscription } from '../contexts/SubscriptionContext';
 
-export const PlanSelectionPage = () => {
-  const navigate = useNavigate();
+interface Props {
+  onBack?: () => void;
+}
+
+export const PlanSelectionPage = ({ onBack }: Props) => {
   const { refreshSubscription } = useSubscription();
   const [selectedPlan, setSelectedPlan] = useState<'individual' | 'organization' | null>(null);
   const [orgName, setOrgName] = useState('');
@@ -32,7 +34,7 @@ export const PlanSelectionPage = () => {
     try {
       await organizationApi.create(orgName.trim());
       await refreshSubscription();
-      navigate('/organization');
+      if (onBack) onBack();
     } catch (err) {
       setError(err instanceof Error ? err.message : '組織の作成に失敗しました');
       setLoading(false);
