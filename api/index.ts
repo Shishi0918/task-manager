@@ -1,6 +1,5 @@
 import express, { Request, Response } from 'express';
 import cors from 'cors';
-import dotenv from 'dotenv';
 import authRoutes from '../backend/src/routes/auth.routes.js';
 import taskRoutes from '../backend/src/routes/task.routes.js';
 import completionRoutes from '../backend/src/routes/completion.routes.js';
@@ -8,8 +7,6 @@ import templateRoutes from '../backend/src/routes/template.routes.js';
 import subscriptionRoutes from '../backend/src/routes/subscription.routes.js';
 import organizationRoutes from '../backend/src/routes/organization.routes.js';
 import webhookRoutes from '../backend/src/routes/webhook.routes.js';
-
-dotenv.config();
 
 const app = express();
 
