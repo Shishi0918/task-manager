@@ -62,7 +62,10 @@ export const register = async (req: Request, res: Response): Promise<void> => {
       return;
     }
     console.error('Register error:', error);
-    res.status(500).json({ error: 'Internal server error' });
+    res.status(500).json({
+      error: 'Internal server error',
+      details: error instanceof Error ? error.message : String(error)
+    });
   }
 };
 
@@ -102,7 +105,10 @@ export const login = async (req: Request, res: Response): Promise<void> => {
       return;
     }
     console.error('Login error:', error);
-    res.status(500).json({ error: 'Internal server error' });
+    res.status(500).json({
+      error: 'Internal server error',
+      details: error instanceof Error ? error.message : String(error)
+    });
   }
 };
 
