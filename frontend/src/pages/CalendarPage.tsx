@@ -28,6 +28,8 @@ export const CalendarPage = ({ onNavigateToTemplateCreator, onNavigateToYearlyTa
   const [editingTaskId, setEditingTaskId] = useState<string | null>(null);
   const [editingTaskName, setEditingTaskName] = useState('');
   const [isComposing, setIsComposing] = useState(false);
+  const [draggedTaskId, setDraggedTaskId] = useState<string | null>(null);
+  const [dragOverTaskId, setDragOverTaskId] = useState<string | null>(null);
 
   const daysInMonth = new Date(year, month, 0).getDate();
   const days = Array.from({ length: daysInMonth }, (_, i) => i + 1);
@@ -315,6 +317,64 @@ export const CalendarPage = ({ onNavigateToTemplateCreator, onNavigateToYearlyTa
         : '元に戻す処理に失敗しました';
       setError(`元に戻す処理に失敗: ${errorMessage}`);
     }
+  };
+
+  // ドラッグ&ドロップ関連のハンドラー
+  const handleDragStart = (e: React.DragEvent, taskId: string) => {
+    setDraggedTaskId(taskId);
+    e.dataTransfer.effectAllowed = 'move';
+    e.dataTransfer.setData('text/plain', taskId);
+  };
+
+  const handleDragOver = (e: React.DragEvent, taskId: string) => {
+    e.preventDefault();
+    if (draggedTaskId && draggedTaskId !== taskId) {
+      setDragOverTaskId(taskId);
+    }
+  };
+
+  const handleDragLeave = () => {
+    setDragOverTaskId(null);
+  };
+
+  const handleDrop = async (e: React.DragEvent, targetTaskId: string) => {
+    e.preventDefault();
+    setDragOverTaskId(null);
+
+    if (!draggedTaskId || draggedTaskId === targetTaskId) {
+      setDraggedTaskId(null);
+      return;
+    }
+
+    try {
+      const draggedIndex = tasks.findIndex(t => t.id === draggedTaskId);
+      const targetIndex = tasks.findIndex(t => t.id === targetTaskId);
+
+      if (draggedIndex === -1 || targetIndex === -1) return;
+
+      // タスクの新しい順序を計算
+      const newTasks = [...tasks];
+      const [draggedTask] = newTasks.splice(draggedIndex, 1);
+      newTasks.splice(targetIndex, 0, draggedTask);
+
+      // displayOrderを更新
+      for (let i = 0; i < newTasks.length; i++) {
+        if (newTasks[i].displayOrder !== i + 1) {
+          await taskApi.updateTask(newTasks[i].id, { displayOrder: i + 1 });
+        }
+      }
+
+      await fetchData();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : '順序の変更に失敗しました');
+    } finally {
+      setDraggedTaskId(null);
+    }
+  };
+
+  const handleDragEnd = () => {
+    setDraggedTaskId(null);
+    setDragOverTaskId(null);
   };
 
   const handleSortByStartDate = async () => {
@@ -726,15 +786,34 @@ export const CalendarPage = ({ onNavigateToTemplateCreator, onNavigateToYearlyTa
                   const rowBgClass = isCompletedTask ? 'bg-gray-100' : 'bg-white';
                   const textColorClass = isCompletedTask ? 'text-gray-400' : '';
 
+                  const isDragging = draggedTaskId === task.id;
+                  const isDragOver = dragOverTaskId === task.id;
+
                   return (
-                    <tr key={task.id} className={isCompletedTask ? 'opacity-60' : ''}>
+                    <tr
+                      key={task.id}
+                      className={`${isCompletedTask ? 'opacity-60' : ''} ${isDragging ? 'opacity-50' : ''} ${isDragOver ? 'border-t-2 border-t-blue-500' : ''}`}
+                      draggable={!isCompletedTask}
+                      onDragStart={(e) => handleDragStart(e, task.id)}
+                      onDragOver={(e) => handleDragOver(e, task.id)}
+                      onDragLeave={handleDragLeave}
+                      onDrop={(e) => handleDrop(e, task.id)}
+                      onDragEnd={handleDragEnd}
+                    >
                       <td className={`border border-gray-300 px-1 py-1 text-center sticky left-0 ${rowBgClass} z-10 w-[32px] min-w-[32px]`}>
-                        <input
-                          type="checkbox"
-                          checked={isChecked}
-                          onChange={() => handleToggleTaskCheck(task.id)}
-                          className="w-4 h-4 cursor-pointer"
-                        />
+                        <div className="flex items-center gap-1">
+                          {!isCompletedTask && (
+                            <span className="cursor-grab text-gray-400 hover:text-gray-600" title="ドラッグして並び替え">
+                              ⋮⋮
+                            </span>
+                          )}
+                          <input
+                            type="checkbox"
+                            checked={isChecked}
+                            onChange={() => handleToggleTaskCheck(task.id)}
+                            className="w-4 h-4 cursor-pointer"
+                          />
+                        </div>
                       </td>
                       <td className={`border border-gray-300 px-2 py-1 font-medium sticky left-[32px] ${rowBgClass} z-10 w-[80px] min-w-[80px] ${textColorClass}`} style={{ writingMode: 'horizontal-tb', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
                         {editingTaskId === task.id ? (
