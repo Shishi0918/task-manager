@@ -1,6 +1,7 @@
-import { Request, Response } from 'express';
+import { Response } from 'express';
 import { z } from 'zod';
 import { prisma } from '../utils/prisma.js';
+import { AuthRequest } from '../types/index.js';
 
 const createTaskSchema = z.object({
   name: z.string(),
@@ -22,7 +23,7 @@ const updateTaskSchema = z.object({
   parentId: z.string().uuid().nullable().optional(),
 });
 
-export const getTasks = async (req: Request, res: Response): Promise<void> => {
+export const getTasks = async (req: AuthRequest, res: Response): Promise<void> => {
   try {
     const { year, month } = req.query;
 
@@ -34,9 +35,10 @@ export const getTasks = async (req: Request, res: Response): Promise<void> => {
     const yearNum = parseInt(year as string);
     const monthNum = parseInt(month as string);
 
-    // 全タスクを取得（親子関係を含む）
+    // ユーザーのタスクを取得（親子関係を含む）
     const tasks = await prisma.task.findMany({
       where: {
+        userId: req.userId!,
         isActive: true,
         year: yearNum,
         month: monthNum,
@@ -67,7 +69,7 @@ export const getTasks = async (req: Request, res: Response): Promise<void> => {
 };
 
 export const createTask = async (
-  req: Request,
+  req: AuthRequest,
   res: Response
 ): Promise<void> => {
   try {
@@ -75,6 +77,7 @@ export const createTask = async (
 
     const task = await prisma.task.create({
       data: {
+        userId: req.userId!,
         name,
         year,
         month,
@@ -100,12 +103,21 @@ export const createTask = async (
 };
 
 export const updateTask = async (
-  req: Request,
+  req: AuthRequest,
   res: Response
 ): Promise<void> => {
   try {
     const { id } = req.params;
     const { name, displayOrder, startDate, endDate, isActive, isCompleted, parentId } = updateTaskSchema.parse(req.body);
+
+    // タスクの所有者確認
+    const existingTask = await prisma.task.findFirst({
+      where: { id, userId: req.userId! },
+    });
+    if (!existingTask) {
+      res.status(404).json({ error: 'Task not found' });
+      return;
+    }
 
     // parentIdが指定されている場合、循環参照をチェック
     if (parentId !== undefined && parentId !== null) {
@@ -168,11 +180,20 @@ async function checkIsDescendant(taskId: string, potentialParentId: string): Pro
 }
 
 export const deleteTask = async (
-  req: Request,
+  req: AuthRequest,
   res: Response
 ): Promise<void> => {
   try {
     const { id } = req.params;
+
+    // タスクの所有者確認
+    const existingTask = await prisma.task.findFirst({
+      where: { id, userId: req.userId! },
+    });
+    if (!existingTask) {
+      res.status(404).json({ error: 'Task not found' });
+      return;
+    }
 
     await prisma.task.delete({
       where: { id },
@@ -186,7 +207,7 @@ export const deleteTask = async (
 };
 
 export const carryForwardTasks = async (
-  req: Request,
+  req: AuthRequest,
   res: Response
 ): Promise<void> => {
   try {
@@ -200,9 +221,10 @@ export const carryForwardTasks = async (
     const yearNum = parseInt(year as string);
     const monthNum = parseInt(month as string);
 
-    // 未完了タスクを取得
+    // ユーザーの未完了タスクを取得
     const incompleteTasks = await prisma.task.findMany({
       where: {
+        userId: req.userId!,
         isActive: true,
         year: yearNum,
         month: monthNum,
@@ -231,6 +253,7 @@ export const carryForwardTasks = async (
     const createPromises = incompleteTasks.map((task) =>
       prisma.task.create({
         data: {
+          userId: req.userId!,
           name: task.name,
           year: nextYear,
           month: nextMonth,

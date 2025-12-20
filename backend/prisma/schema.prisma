@@ -32,6 +32,7 @@ model User {
   organization       Organization?      @relation(fields: [organizationId], references: [id])
   role               UserRole           @default(MEMBER)
 
+  tasks              Task[]
   completions        TaskCompletion[]
   templates          TaskTemplate[]
   spotTasks          SpotTask[]
@@ -95,6 +96,7 @@ enum SubscriptionStatus {
 
 model Task {
   id           String           @id @default(uuid())
+  userId       String           @map("user_id")
   name         String
   year         Int
   month        Int
@@ -107,6 +109,7 @@ model Task {
   createdAt    DateTime         @default(now()) @map("created_at")
   updatedAt    DateTime         @updatedAt @map("updated_at")
 
+  user         User             @relation(fields: [userId], references: [id], onDelete: Cascade)
   parent       Task?            @relation("TaskHierarchy", fields: [parentId], references: [id], onDelete: SetNull)
   children     Task[]           @relation("TaskHierarchy")
   completions  TaskCompletion[]

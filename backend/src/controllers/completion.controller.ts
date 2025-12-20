@@ -27,9 +27,10 @@ export const getCompletions = async (
     const startDate = new Date(yearNum, monthNum - 1, 1);
     const endDate = new Date(yearNum, monthNum, 0);
 
-    // 全タスクを取得（親子関係を含む）
+    // ユーザーのタスクを取得（親子関係を含む）
     const tasks = await prisma.task.findMany({
       where: {
+        userId: req.userId!,
         isActive: true,
         year: yearNum,
         month: monthNum,
@@ -187,6 +188,7 @@ export const getStats = async (
 
     const totalTasks = await prisma.task.count({
       where: {
+        userId: req.userId!,
         isActive: true,
         year: yearNum,
         month: monthNum,
