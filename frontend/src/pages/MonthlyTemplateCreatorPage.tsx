@@ -24,9 +24,6 @@ export const MonthlyTemplateCreatorPage = ({ onBack }: MonthlyTemplateCreatorPag
   const [tasks, setTasks] = useState<MonthlyTemplateTask[]>([]);
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(true);
-  const [saving, setSaving] = useState(false);
-  const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false);
-  const [initialLoadComplete, setInitialLoadComplete] = useState(false);
   const [selectedStartDays, setSelectedStartDays] = useState<Record<string, number | null>>({});
   const [hoverDays, setHoverDays] = useState<Record<string, number | null>>({});
   const [checkedTasks, setCheckedTasks] = useState<Set<string>>(new Set());
@@ -39,10 +36,54 @@ export const MonthlyTemplateCreatorPage = ({ onBack }: MonthlyTemplateCreatorPag
   const [dragOverBottom, setDragOverBottom] = useState(false);
   const [dragMode, setDragMode] = useState<'reorder' | 'nest' | 'unnest'>('reorder');
   const [nestTargetTaskId, setNestTargetTaskId] = useState<string | null>(null);
+  const [isInitialLoad, setIsInitialLoad] = useState(true);
   const tableRef = useRef<HTMLTableElement>(null);
+  const saveTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const isSavingRef = useRef(false);
 
   // 1-31日を固定で表示
   const days = Array.from({ length: 31 }, (_, i) => i + 1);
+
+  // 自動保存関数
+  const autoSave = useCallback(async (tasksToSave: MonthlyTemplateTask[]) => {
+    if (isSavingRef.current) return;
+    isSavingRef.current = true;
+
+    try {
+      const data = tasksToSave.map((task, index) => ({
+        name: task.name,
+        displayOrder: index + 1,
+        startDay: task.startDay,
+        endDay: task.endDay,
+      }));
+
+      await templateApi.saveMonthlyTemplate(DEFAULT_TEMPLATE_NAME, data);
+    } catch (err) {
+      console.error('月次テンプレートの自動保存に失敗:', err);
+      setError('月次テンプレートの保存に失敗しました');
+    } finally {
+      isSavingRef.current = false;
+    }
+  }, []);
+
+  // タスクが変更されたら自動保存（デバウンス付き）
+  useEffect(() => {
+    if (isInitialLoad) return;
+
+    if (saveTimeoutRef.current) {
+      clearTimeout(saveTimeoutRef.current);
+    }
+
+    saveTimeoutRef.current = setTimeout(() => {
+      autoSave(tasks);
+    }, 500);
+
+    return () => {
+      if (saveTimeoutRef.current) {
+        clearTimeout(saveTimeoutRef.current);
+      }
+    };
+  }, [tasks, isInitialLoad, autoSave]);
 
   // 初回ロード時にAPIから月次テンプレートを読み込む
   useEffect(() => {
@@ -66,43 +107,11 @@ export const MonthlyTemplateCreatorPage = ({ onBack }: MonthlyTemplateCreatorPag
         console.log('月次テンプレートが見つかりません（新規作成）');
       } finally {
         setLoading(false);
-        setTimeout(() => setInitialLoadComplete(true), 100);
+        setIsInitialLoad(false);
       }
     };
     loadTasks();
   }, [user?.id]);
-
-  // 保存処理
-  const handleSave = useCallback(async () => {
-    if (saving || !hasUnsavedChanges) return;
-
-    setSaving(true);
-    setError('');
-
-    try {
-      const tasksToSave = tasks.map((task, index) => ({
-        name: task.name,
-        displayOrder: index + 1,
-        startDay: task.startDay,
-        endDay: task.endDay,
-      }));
-
-      await templateApi.saveMonthlyTemplate(DEFAULT_TEMPLATE_NAME, tasksToSave);
-      setHasUnsavedChanges(false);
-    } catch (err) {
-      console.error('月次テンプレートの保存に失敗:', err);
-      setError('月次テンプレートの保存に失敗しました');
-    } finally {
-      setSaving(false);
-    }
-  }, [tasks, saving, hasUnsavedChanges]);
-
-  // タスクが変更されたら未保存フラグを立てる（初回ロード完了後のみ）
-  useEffect(() => {
-    if (initialLoadComplete) {
-      setHasUnsavedChanges(true);
-    }
-  }, [tasks, initialLoadComplete]);
 
   // Enterキーで次のタスクを編集するためのキーボードリスナー
   useEffect(() => {
@@ -797,17 +806,6 @@ export const MonthlyTemplateCreatorPage = ({ onBack }: MonthlyTemplateCreatorPag
                 className="hidden"
               />
             </label>
-            <button
-              onClick={handleSave}
-              disabled={saving || !hasUnsavedChanges}
-              className={`px-4 py-2 text-white rounded ${
-                saving || !hasUnsavedChanges
-                  ? 'bg-gray-400 cursor-not-allowed'
-                  : 'bg-indigo-600 hover:bg-indigo-700'
-              }`}
-            >
-              {saving ? '保存中...' : hasUnsavedChanges ? '保存' : '保存済み'}
-            </button>
           </div>
 
           <div className="overflow-x-auto">
