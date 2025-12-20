@@ -67,7 +67,11 @@ export const YearlyTaskCreatorPage = ({ onBack }: YearlyTaskCreatorPageProps) =>
 
   // 自動保存関数
   const autoSave = useCallback(async (tasksToSave: YearlyTask[]) => {
-    if (isSavingRef.current) return;
+    console.log('🔄 autoSave called, tasks:', tasksToSave.length);
+    if (isSavingRef.current) {
+      console.log('⏳ Already saving, skipping');
+      return;
+    }
     isSavingRef.current = true;
 
     try {
@@ -88,9 +92,11 @@ export const YearlyTaskCreatorPage = ({ onBack }: YearlyTaskCreatorPageProps) =>
         };
       });
 
-      await yearlyTaskApi.bulkSave(tasksWithParentIndex);
+      console.log('📤 Sending to API:', tasksWithParentIndex);
+      const result = await yearlyTaskApi.bulkSave(tasksWithParentIndex);
+      console.log('✅ Save successful:', result);
     } catch (err) {
-      console.error('年次タスクの自動保存に失敗:', err);
+      console.error('❌ 年次タスクの自動保存に失敗:', err);
       setError('年次タスクの保存に失敗しました');
     } finally {
       isSavingRef.current = false;
@@ -99,12 +105,17 @@ export const YearlyTaskCreatorPage = ({ onBack }: YearlyTaskCreatorPageProps) =>
 
   // タスクが変更されたら自動保存（デバウンス付き）
   useEffect(() => {
-    if (isInitialLoad) return;
+    console.log('📝 Tasks changed, isInitialLoad:', isInitialLoad, 'tasks count:', tasks.length);
+    if (isInitialLoad) {
+      console.log('⏸️ Skipping save - initial load');
+      return;
+    }
 
     if (saveTimeoutRef.current) {
       clearTimeout(saveTimeoutRef.current);
     }
 
+    console.log('⏰ Scheduling autoSave in 500ms');
     saveTimeoutRef.current = setTimeout(() => {
       autoSave(tasks);
     }, 500);
