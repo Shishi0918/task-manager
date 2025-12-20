@@ -63,12 +63,14 @@ export const CalendarPage = ({ onNavigateToTemplateCreator, onNavigateToYearlyTa
         completionApi.getCompletions(year, month),
         completionApi.getStats(year, month),
       ]);
-      console.log('🔍 Raw API response:', JSON.stringify(completionsData.tasks, null, 2));
       // 階層タスクをフラット化して表示用に変換
       const flattenedTasks = flattenTasks(completionsData.tasks);
-      console.log('🔍 Flattened tasks:', flattenedTasks.map(t => ({ id: t.id, name: t.name, level: t.level, startDate: t.startDate, endDate: t.endDate, parentId: t.parentId })));
       setTasks(flattenedTasks);
       setStats(statsData);
+
+      // ローカルストレージにキャッシュ
+      const cacheKey = `tasks_${year}_${month}`;
+      localStorage.setItem(cacheKey, JSON.stringify(flattenedTasks));
     } catch (err) {
       setError(err instanceof Error ? err.message : 'データの取得に失敗しました');
     } finally {
@@ -77,6 +79,19 @@ export const CalendarPage = ({ onNavigateToTemplateCreator, onNavigateToYearlyTa
   };
 
   useEffect(() => {
+    // キャッシュから先にデータを読み込み（即座に表示）
+    const cacheKey = `tasks_${year}_${month}`;
+    const cachedData = localStorage.getItem(cacheKey);
+    if (cachedData) {
+      try {
+        const cachedTasks = JSON.parse(cachedData);
+        setTasks(cachedTasks);
+        setLoading(false); // キャッシュがあれば即座にロード完了
+      } catch {
+        // キャッシュが壊れている場合は無視
+      }
+    }
+    // バックグラウンドで最新データを取得
     fetchData();
   }, [year, month]);
 
@@ -588,17 +603,14 @@ export const CalendarPage = ({ onNavigateToTemplateCreator, onNavigateToYearlyTa
 
     // 階層解除モード
     if (currentDragMode === 'unnest') {
-      try {
-        const draggedTask = tasks.find(t => t.id === draggedTaskId);
-        if (draggedTask && draggedTask.parentId) {
-          // 親タスクの親を取得（1階層上）
-          const parentTask = tasks.find(t => t.id === draggedTask.parentId);
-          const newParentId = parentTask?.parentId ?? null;
+      const draggedTask = tasks.find(t => t.id === draggedTaskId);
+      if (draggedTask && draggedTask.parentId) {
+        // 親タスクの親を取得（1階層上）
+        const parentTask = tasks.find(t => t.id === draggedTask.parentId);
+        const newParentId = parentTask?.parentId ?? null;
 
-          await taskApi.updateTask(draggedTaskId, { parentId: newParentId });
-
-          // ローカル状態を更新（リロードなし）
-          setTasks(prevTasks => {
+        // ローカル状態を即座に更新（楽観的更新）
+        setTasks(prevTasks => {
             const newTasks = [...prevTasks];
             const draggedIndex = newTasks.findIndex(t => t.id === draggedTaskId);
             if (draggedIndex === -1) return prevTasks;
@@ -662,22 +674,21 @@ export const CalendarPage = ({ onNavigateToTemplateCreator, onNavigateToYearlyTa
 
             return newTasks;
           });
-        }
-      } catch (err) {
-        setError(err instanceof Error ? err.message : '階層の変更に失敗しました');
-      } finally {
+
+        // APIをバックグラウンドで実行
         setDraggedTaskId(null);
+        taskApi.updateTask(draggedTaskId, { parentId: newParentId }).catch(err => {
+          setError(err instanceof Error ? err.message : '階層の変更に失敗しました');
+          fetchData(); // エラー時はデータを再取得
+        });
       }
       return;
     }
 
     // 階層化モード
     if (currentDragMode === 'nest' && currentNestTarget) {
-      try {
-        await taskApi.updateTask(draggedTaskId, { parentId: currentNestTarget });
-
-        // ローカル状態を更新（リロードなし）
-        setTasks(prevTasks => {
+      // ローカル状態を即座に更新（楽観的更新）
+      setTasks(prevTasks => {
           const newTasks = [...prevTasks];
           const draggedIndex = newTasks.findIndex(t => t.id === draggedTaskId);
           const targetIndex = newTasks.findIndex(t => t.id === currentNestTarget);
@@ -723,11 +734,13 @@ export const CalendarPage = ({ onNavigateToTemplateCreator, onNavigateToYearlyTa
           newTasks.splice(insertIndex, 0, ...movedGroup);
           return newTasks;
         });
-      } catch (err) {
+
+      // APIをバックグラウンドで実行
+      setDraggedTaskId(null);
+      taskApi.updateTask(draggedTaskId, { parentId: currentNestTarget }).catch(err => {
         setError(err instanceof Error ? err.message : '階層の変更に失敗しました');
-      } finally {
-        setDraggedTaskId(null);
-      }
+        fetchData(); // エラー時はデータを再取得
+      });
       return;
     }
 
