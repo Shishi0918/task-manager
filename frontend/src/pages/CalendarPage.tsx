@@ -3,6 +3,7 @@ import { completionApi, taskApi, spotTaskApi } from '../services/api';
 import type { TaskWithCompletions, Stats } from '../types';
 import { TaskModal } from '../components/TaskModal';
 import { AccountMenu } from '../components/AccountMenu';
+import { useAuth } from '../contexts/AuthContext';
 
 // 階層タスクをフラット化する関数
 const flattenTasks = (
@@ -27,6 +28,7 @@ interface CalendarPageProps {
 }
 
 export const CalendarPage = ({ onNavigateToTemplateCreator, onNavigateToYearlyTaskCreator, onNavigateToSpotTaskCreator, onNavigateToOrganization }: CalendarPageProps) => {
+  const { user } = useAuth();
   const [year, setYear] = useState(new Date().getFullYear());
   const [month, setMonth] = useState(new Date().getMonth() + 1);
   const [tasks, setTasks] = useState<TaskWithCompletions[]>([]);
@@ -70,9 +72,11 @@ export const CalendarPage = ({ onNavigateToTemplateCreator, onNavigateToYearlyTa
       setTasks(flattenedTasks);
       setStats(statsData);
 
-      // ローカルストレージにキャッシュ
-      const cacheKey = `tasks_${year}_${month}`;
-      localStorage.setItem(cacheKey, JSON.stringify(flattenedTasks));
+      // ローカルストレージにキャッシュ（ユーザーIDを含める）
+      if (user?.id) {
+        const cacheKey = `tasks_${user.id}_${year}_${month}`;
+        localStorage.setItem(cacheKey, JSON.stringify(flattenedTasks));
+      }
     } catch (err) {
       setError(err instanceof Error ? err.message : 'データの取得に失敗しました');
     } finally {
@@ -82,24 +86,27 @@ export const CalendarPage = ({ onNavigateToTemplateCreator, onNavigateToYearlyTa
 
   useEffect(() => {
     // キャッシュから先にデータを読み込み（即座に表示）
-    const cacheKey = `tasks_${year}_${month}`;
-    const cachedData = localStorage.getItem(cacheKey);
     let hasCachedData = false;
 
-    if (cachedData) {
-      try {
-        const cachedTasks = JSON.parse(cachedData);
-        setTasks(cachedTasks);
-        setLoading(false); // キャッシュがあれば即座にロード完了
-        hasCachedData = true;
-      } catch {
-        // キャッシュが壊れている場合は無視
+    if (user?.id) {
+      const cacheKey = `tasks_${user.id}_${year}_${month}`;
+      const cachedData = localStorage.getItem(cacheKey);
+
+      if (cachedData) {
+        try {
+          const cachedTasks = JSON.parse(cachedData);
+          setTasks(cachedTasks);
+          setLoading(false); // キャッシュがあれば即座にロード完了
+          hasCachedData = true;
+        } catch {
+          // キャッシュが壊れている場合は無視
+        }
       }
     }
 
     // バックグラウンドで最新データを取得（キャッシュがあればローディング表示なし）
     fetchData(!hasCachedData);
-  }, [year, month]);
+  }, [year, month, user?.id]);
 
   // Enterキーで次のタスクを編集するためのキーボードリスナー
   useEffect(() => {
