@@ -1,11 +1,9 @@
 import { Request, Response } from 'express';
-import { PrismaClient } from '@prisma/client';
 import { z } from 'zod';
 import { hashPassword, comparePassword } from '../utils/password.js';
 import { generateToken } from '../utils/jwt.js';
 import { AuthRequest } from '../types/index.js';
-
-const prisma = new PrismaClient();
+import { prisma } from '../utils/prisma.js';
 
 const registerSchema = z.object({
   email: z.string().email(),

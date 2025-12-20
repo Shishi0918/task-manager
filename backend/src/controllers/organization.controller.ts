@@ -1,10 +1,8 @@
 import { Response } from 'express';
-import { PrismaClient } from '@prisma/client';
 import { z } from 'zod';
 import crypto from 'crypto';
 import { AuthRequest } from '../types/index.js';
-
-const prisma = new PrismaClient();
+import { prisma } from '../utils/prisma.js';
 
 const createOrgSchema = z.object({
   name: z.string().min(1).max(100),

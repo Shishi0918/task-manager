@@ -1,9 +1,7 @@
 import { Response } from 'express';
-import { PrismaClient } from '@prisma/client';
 import { z } from 'zod';
 import { AuthRequest } from '../types/index.js';
-
-const prisma = new PrismaClient();
+import { prisma } from '../utils/prisma.js';
 
 const createSpotTaskSchema = z.object({
   name: z.string().min(1),

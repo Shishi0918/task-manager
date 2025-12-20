@@ -1,9 +1,7 @@
 import { Response } from 'express';
-import { PrismaClient } from '@prisma/client';
 import { z } from 'zod';
 import { AuthRequest } from '../types/index.js';
-
-const prisma = new PrismaClient();
+import { prisma } from '../utils/prisma.js';
 
 // Helper function to get the previous business day (skip weekends)
 const getPreviousBusinessDay = (year: number, month: number, day: number): number => {
