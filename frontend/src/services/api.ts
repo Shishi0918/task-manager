@@ -9,10 +9,6 @@ import type {
 
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:3001';
 
-// デバッグ用：実際に使用されているAPI URLをログ出力
-console.log('🔧 DEBUG: API_URL =', API_URL);
-console.log('🔧 DEBUG: VITE_API_URL env var =', import.meta.env.VITE_API_URL);
-
 class ApiError extends Error {
   status?: number;
 
