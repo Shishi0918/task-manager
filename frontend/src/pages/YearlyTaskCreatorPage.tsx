@@ -42,8 +42,13 @@ export const YearlyTaskCreatorPage = ({ onBack }: YearlyTaskCreatorPageProps) =>
 
   // 初回ロード時にlocalStorageから年次タスクを読み込む
   useEffect(() => {
+    if (!user?.id) {
+      setLoading(false);
+      return;
+    }
     try {
-      const savedTasks = localStorage.getItem('yearlyTasks');
+      const cacheKey = `yearlyTasks_${user.id}`;
+      const savedTasks = localStorage.getItem(cacheKey);
       if (savedTasks) {
         const loadedTasks: YearlyTask[] = JSON.parse(savedTasks);
         setTasks(loadedTasks);
@@ -53,18 +58,19 @@ export const YearlyTaskCreatorPage = ({ onBack }: YearlyTaskCreatorPageProps) =>
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [user?.id]);
 
   // タスクが変更されたらlocalStorageに保存（初回ロード後のみ）
   useEffect(() => {
-    if (loading) return; // 初回ロード中はスキップ
+    if (loading || !user?.id) return; // 初回ロード中またはユーザー未確定時はスキップ
 
     try {
-      localStorage.setItem('yearlyTasks', JSON.stringify(tasks));
+      const cacheKey = `yearlyTasks_${user.id}`;
+      localStorage.setItem(cacheKey, JSON.stringify(tasks));
     } catch (err) {
       console.error('年次タスクの保存に失敗:', err);
     }
-  }, [tasks, loading]);
+  }, [tasks, loading, user?.id]);
 
   // Enterキーで次のタスクを編集するためのキーボードリスナー
   useEffect(() => {

@@ -51,11 +51,12 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
 
   const logout = () => {
     localStorage.removeItem('token');
-    // ユーザー固有のキャッシュをクリア
+    // ユーザー固有のキャッシュをすべてクリア
+    const userCachePrefixes = ['tasks_', 'monthlyTemplate_', 'yearlyTasks_'];
     const keysToRemove: string[] = [];
     for (let i = 0; i < localStorage.length; i++) {
       const key = localStorage.key(i);
-      if (key && key.startsWith('tasks_')) {
+      if (key && userCachePrefixes.some(prefix => key.startsWith(prefix))) {
         keysToRemove.push(key);
       }
     }

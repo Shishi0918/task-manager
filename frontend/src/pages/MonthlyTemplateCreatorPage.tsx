@@ -39,8 +39,13 @@ export const MonthlyTemplateCreatorPage = ({ onBack }: MonthlyTemplateCreatorPag
 
   // 初回ロード時にlocalStorageから月次テンプレートを読み込む
   useEffect(() => {
+    if (!user?.id) {
+      setLoading(false);
+      return;
+    }
     try {
-      const savedTasks = localStorage.getItem('monthlyTemplate');
+      const cacheKey = `monthlyTemplate_${user.id}`;
+      const savedTasks = localStorage.getItem(cacheKey);
       if (savedTasks) {
         const loadedTasks: MonthlyTemplateTask[] = JSON.parse(savedTasks);
         setTasks(loadedTasks);
@@ -50,18 +55,19 @@ export const MonthlyTemplateCreatorPage = ({ onBack }: MonthlyTemplateCreatorPag
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [user?.id]);
 
   // タスクが変更されたらlocalStorageに保存（初回ロード後のみ）
   useEffect(() => {
-    if (loading) return; // 初回ロード中はスキップ
+    if (loading || !user?.id) return; // 初回ロード中またはユーザー未確定時はスキップ
 
     try {
-      localStorage.setItem('monthlyTemplate', JSON.stringify(tasks));
+      const cacheKey = `monthlyTemplate_${user.id}`;
+      localStorage.setItem(cacheKey, JSON.stringify(tasks));
     } catch (err) {
       console.error('月次テンプレートの保存に失敗:', err);
     }
-  }, [tasks, loading]);
+  }, [tasks, loading, user?.id]);
 
   // Enterキーで次のタスクを編集するためのキーボードリスナー
   useEffect(() => {

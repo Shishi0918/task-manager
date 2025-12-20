@@ -998,9 +998,9 @@ export const CalendarPage = ({ onNavigateToTemplateCreator, onNavigateToYearlyTa
 
   const handleApplyTemplate = async () => {
     try {
-      // localStorageから月次テンプレートと年次タスクを取得
-      const savedMonthlyTemplate = localStorage.getItem('monthlyTemplate');
-      const savedYearlyTasks = localStorage.getItem('yearlyTasks');
+      // localStorageから月次テンプレートと年次タスクを取得（ユーザー固有）
+      const savedMonthlyTemplate = user?.id ? localStorage.getItem(`monthlyTemplate_${user.id}`) : null;
+      const savedYearlyTasks = user?.id ? localStorage.getItem(`yearlyTasks_${user.id}`) : null;
 
       interface MonthlyTemplateTask {
         id: string;
