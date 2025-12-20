@@ -1,5 +1,6 @@
 import { Response } from 'express';
 import { z } from 'zod';
+import crypto from 'crypto';
 import { AuthRequest } from '../types/index.js';
 import { prisma } from '../utils/prisma.js';
 
