@@ -113,16 +113,29 @@ export const CalendarPage = ({ onNavigateToTemplateCreator, onNavigateToYearlyTa
 
   const handleAddTask = async () => {
     try {
-      // 既存のタスクのdisplayOrderをすべて+1する
-      for (const task of tasks) {
-        await taskApi.updateTask(task.id, {
-          displayOrder: task.displayOrder + 1,
-        });
-      }
+      // 新規タスクを末尾に追加（既存タスクの更新は不要）
+      const maxDisplayOrder = tasks.length > 0
+        ? Math.max(...tasks.map(t => t.displayOrder))
+        : 0;
 
-      // 新規タスクをdisplayOrder=1で作成（一番上）空白タスク
-      const response = await taskApi.createTask('', year, month, 1);
+      const response = await taskApi.createTask('', year, month, maxDisplayOrder + 1);
       const newTask = response.task;
+
+      // ローカル状態を即座に更新（リロードなし）
+      const newTaskWithCompletions: TaskWithCompletions = {
+        id: newTask.id,
+        name: newTask.name,
+        year: newTask.year,
+        month: newTask.month,
+        displayOrder: newTask.displayOrder,
+        startDate: newTask.startDate,
+        endDate: newTask.endDate,
+        isCompleted: newTask.isCompleted,
+        parentId: newTask.parentId,
+        completions: {},
+        level: 0,
+      };
+      setTasks(prevTasks => [...prevTasks, newTaskWithCompletions]);
 
       // Undo履歴に追加
       setUndoStack((prev) => [
@@ -135,8 +148,6 @@ export const CalendarPage = ({ onNavigateToTemplateCreator, onNavigateToYearlyTa
           },
         },
       ]);
-
-      await fetchData();
 
       // 追加後、そのタスクを編集モードにする
       setEditingTaskId(newTask.id);
@@ -176,10 +187,11 @@ export const CalendarPage = ({ onNavigateToTemplateCreator, onNavigateToYearlyTa
     try {
       // 削除前にタスク情報を保存
       const deletedTasks = tasks.filter(task => checkedTasks.has(task.id));
+      const checkedTaskIds = Array.from(checkedTasks);
 
-      for (const taskId of checkedTasks) {
-        await taskApi.deleteTask(taskId);
-      }
+      // ローカル状態を即座に更新（楽観的更新）
+      setTasks(prevTasks => prevTasks.filter(task => !checkedTasks.has(task.id)));
+      setCheckedTasks(new Set());
 
       // Undo履歴に追加
       setUndoStack((prev) => [
@@ -192,10 +204,12 @@ export const CalendarPage = ({ onNavigateToTemplateCreator, onNavigateToYearlyTa
         },
       ]);
 
-      setCheckedTasks(new Set());
-      await fetchData();
+      // APIは並列で実行（バックグラウンド）
+      await Promise.all(checkedTaskIds.map(taskId => taskApi.deleteTask(taskId)));
     } catch (err) {
       setError(err instanceof Error ? err.message : 'タスクの削除に失敗しました');
+      // エラー時はデータを再取得
+      await fetchData();
     }
   };
 
@@ -249,40 +263,52 @@ export const CalendarPage = ({ onNavigateToTemplateCreator, onNavigateToYearlyTa
       const startDateStr = `${year}-${String(month).padStart(2, '0')}-${String(startDay).padStart(2, '0')}`;
       const endDateStr = `${year}-${String(month).padStart(2, '0')}-${String(endDay).padStart(2, '0')}`;
 
-      try {
-        await taskApi.updateTask(taskId, {
-          startDate: startDateStr,
-          endDate: endDateStr,
-        });
+      // ローカル状態を即座に更新（楽観的更新）
+      const newCompletions: Record<string, boolean> = {};
+      for (let d = startDay; d <= endDay; d++) {
+        const dateStr = `${year}-${String(month).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
+        newCompletions[dateStr] = true;
+      }
 
-        // 期間内のすべての日にチェックを入れる
+      setTasks(prevTasks => prevTasks.map(t =>
+        t.id === taskId
+          ? { ...t, startDate: startDateStr, endDate: endDateStr, completions: { ...t.completions, ...newCompletions } }
+          : t
+      ));
+      setSelectedStartDays({ ...selectedStartDays, [taskId]: null });
+      setHoverDays({ ...hoverDays, [taskId]: null });
+
+      // Undo履歴に追加
+      setUndoStack((prev) => [
+        ...prev,
+        {
+          type: 'period',
+          data: {
+            taskId,
+            year,
+            month,
+            startDay,
+            endDay,
+          },
+        },
+      ]);
+
+      try {
+        // APIは並列で実行（バックグラウンド）
+        const completionPromises = [];
         for (let d = startDay; d <= endDay; d++) {
           const targetDate = `${year}-${String(month).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
-          await completionApi.upsertCompletion(taskId, targetDate, true);
+          completionPromises.push(completionApi.upsertCompletion(taskId, targetDate, true));
         }
 
-        // Undo履歴に追加
-        setUndoStack((prev) => [
-          ...prev,
-          {
-            type: 'period',
-            data: {
-              taskId,
-              year,
-              month,
-              startDay,
-              endDay,
-            },
-          },
+        await Promise.all([
+          taskApi.updateTask(taskId, { startDate: startDateStr, endDate: endDateStr }),
+          ...completionPromises
         ]);
-
-        await fetchData();
-        setSelectedStartDays({ ...selectedStartDays, [taskId]: null });
-        setHoverDays({ ...hoverDays, [taskId]: null });
       } catch (err) {
         setError(err instanceof Error ? err.message : '期間の設定に失敗しました');
-        setSelectedStartDays({ ...selectedStartDays, [taskId]: null });
-        setHoverDays({ ...hoverDays, [taskId]: null });
+        // エラー時はデータを再取得
+        await fetchData();
       }
     }
   };
@@ -828,11 +854,11 @@ export const CalendarPage = ({ onNavigateToTemplateCreator, onNavigateToYearlyTa
 
   const handleSortByStartDate = async () => {
     // 未完了タスクと完了タスクを分ける
-    const incompleteTasks = tasks.filter(t => !t.isCompleted);
-    const completedTasks = tasks.filter(t => t.isCompleted);
+    const incompleteTasks = [...tasks.filter(t => !t.isCompleted)];
+    const completedTasks = [...tasks.filter(t => t.isCompleted)];
 
     // 未完了タスクのみをソート
-    const sortedIncompleteTasks = incompleteTasks.sort((a, b) => {
+    incompleteTasks.sort((a, b) => {
       // startDateがない場合は後ろに配置
       if (!a.startDate && !b.startDate) return 0;
       if (!a.startDate) return 1;
@@ -842,20 +868,25 @@ export const CalendarPage = ({ onNavigateToTemplateCreator, onNavigateToYearlyTa
       return a.startDate.localeCompare(b.startDate);
     });
 
-    // 未完了タスク + 完了タスクの順に結合
-    const sorted = [...sortedIncompleteTasks, ...completedTasks];
+    // 未完了タスク + 完了タスクの順に結合し、displayOrderを更新
+    const sorted = [...incompleteTasks, ...completedTasks].map((task, i) => ({
+      ...task,
+      displayOrder: i + 1,
+    }));
 
-    // 各タスクのdisplayOrderを更新
+    // ローカル状態を即座に更新（楽観的更新）
+    setTasks(sorted);
+
+    // 各タスクのdisplayOrderを更新（並列で実行）
     try {
-      for (let i = 0; i < sorted.length; i++) {
-        await taskApi.updateTask(sorted[i].id, {
-          displayOrder: i + 1,
-        });
-      }
-      // データを再取得して最新の状態を反映
-      await fetchData();
+      const updatePromises = sorted.map((task, i) =>
+        taskApi.updateTask(task.id, { displayOrder: i + 1 })
+      );
+      await Promise.all(updatePromises);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'ソートに失敗しました');
+      // エラー時はデータを再取得
+      await fetchData();
     }
   };
 
@@ -867,47 +898,47 @@ export const CalendarPage = ({ onNavigateToTemplateCreator, onNavigateToYearlyTa
     // チェックされたタスクが全て完了済みかどうかを判定
     const checkedTaskObjects = tasks.filter(t => checkedTasks.has(t.id));
     const allCompleted = checkedTaskObjects.every(t => t.isCompleted);
+    const newCompletedStatus = !allCompleted;
+
+    // タスクを再ソート（未完了タスクを上、完了タスクを下）
+    const updatedTasks = tasks.map(t => {
+      if (checkedTasks.has(t.id)) {
+        return { ...t, isCompleted: newCompletedStatus };
+      }
+      return t;
+    });
+
+    const incompleteTasks = updatedTasks.filter(t => !t.isCompleted);
+    const completedTasks = updatedTasks.filter(t => t.isCompleted);
+
+    const sortedTasks = [...incompleteTasks, ...completedTasks].map((task, i) => ({
+      ...task,
+      displayOrder: i + 1,
+    }));
+
+    // ローカル状態を即座に更新（楽観的更新）
+    setTasks(sortedTasks);
+    setCheckedTasks(new Set());
 
     try {
-      if (allCompleted) {
-        // 全て完了済み → 未完了に戻す
-        for (const taskId of checkedTasks) {
-          await taskApi.updateTask(taskId, { isCompleted: false });
-        }
-      } else {
-        // 未完了が含まれる → 完了にする
-        for (const taskId of checkedTasks) {
-          await taskApi.updateTask(taskId, { isCompleted: true });
-        }
+      // 完了/未完了の切り替えとdisplayOrderの更新を並列で実行
+      const updatePromises: Promise<any>[] = [];
+
+      // 完了/未完了の切り替え
+      for (const taskId of checkedTasks) {
+        updatePromises.push(taskApi.updateTask(taskId, { isCompleted: newCompletedStatus }));
       }
 
-      // タスクを再ソート（未完了タスクを上、完了タスクを下）
-      const incompleteTasks = tasks.filter(t => {
-        if (checkedTasks.has(t.id)) {
-          return allCompleted; // 完了→未完了に戻した場合は未完了グループへ
-        }
-        return !t.isCompleted;
-      });
-
-      const completedTasks = tasks.filter(t => {
-        if (checkedTasks.has(t.id)) {
-          return !allCompleted; // 未完了→完了にした場合は完了グループへ
-        }
-        return t.isCompleted;
-      });
-
-      const sortedTasks = [...incompleteTasks, ...completedTasks];
-
+      // displayOrderの更新
       for (let i = 0; i < sortedTasks.length; i++) {
-        await taskApi.updateTask(sortedTasks[i].id, {
-          displayOrder: i + 1,
-        });
+        updatePromises.push(taskApi.updateTask(sortedTasks[i].id, { displayOrder: i + 1 }));
       }
 
-      setCheckedTasks(new Set());
-      await fetchData();
+      await Promise.all(updatePromises);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'タスクの完了/未完了の切り替えに失敗しました');
+      // エラー時はデータを再取得
+      await fetchData();
     }
   };
 
@@ -962,9 +993,11 @@ export const CalendarPage = ({ onNavigateToTemplateCreator, onNavigateToYearlyTa
         : 0;
 
       // その月の日数を取得
-      const daysInMonth = new Date(year, month, 0).getDate();
+      const daysInCurrentMonth = new Date(year, month, 0).getDate();
 
-      let addedCount = 0;
+      // すべてのタスク作成リクエストを並列で実行
+      const createPromises: Promise<any>[] = [];
+      let orderIndex = 0;
 
       // 月次テンプレートから新しいタスクを作成
       for (const templateTask of monthlyTemplateTasks) {
@@ -972,23 +1005,16 @@ export const CalendarPage = ({ onNavigateToTemplateCreator, onNavigateToYearlyTa
         let endDateStr: string | undefined = undefined;
 
         if (templateTask.startDay !== null && templateTask.endDay !== null) {
-          // 月末日を超えないように調整
-          const adjustedStartDay = Math.min(templateTask.startDay, daysInMonth);
-          const adjustedEndDay = Math.min(templateTask.endDay, daysInMonth);
-
+          const adjustedStartDay = Math.min(templateTask.startDay, daysInCurrentMonth);
+          const adjustedEndDay = Math.min(templateTask.endDay, daysInCurrentMonth);
           startDateStr = `${year}-${String(month).padStart(2, '0')}-${String(adjustedStartDay).padStart(2, '0')}`;
           endDateStr = `${year}-${String(month).padStart(2, '0')}-${String(adjustedEndDay).padStart(2, '0')}`;
         }
 
-        await taskApi.createTask(
-          templateTask.name,
-          year,
-          month,
-          maxDisplayOrder + addedCount + 1,
-          startDateStr,
-          endDateStr
+        createPromises.push(
+          taskApi.createTask(templateTask.name, year, month, maxDisplayOrder + orderIndex + 1, startDateStr, endDateStr)
         );
-        addedCount++;
+        orderIndex++;
       }
 
       // 年次タスクを月次タスクとして追加
@@ -997,23 +1023,16 @@ export const CalendarPage = ({ onNavigateToTemplateCreator, onNavigateToYearlyTa
         let endDateStr: string | undefined = undefined;
 
         if (yearlyTask.startDay !== null && yearlyTask.endDay !== null) {
-          // 月末日を超えないように調整
-          const adjustedStartDay = Math.min(yearlyTask.startDay, daysInMonth);
-          const adjustedEndDay = Math.min(yearlyTask.endDay, daysInMonth);
-
+          const adjustedStartDay = Math.min(yearlyTask.startDay, daysInCurrentMonth);
+          const adjustedEndDay = Math.min(yearlyTask.endDay, daysInCurrentMonth);
           startDateStr = `${year}-${String(month).padStart(2, '0')}-${String(adjustedStartDay).padStart(2, '0')}`;
           endDateStr = `${year}-${String(month).padStart(2, '0')}-${String(adjustedEndDay).padStart(2, '0')}`;
         }
 
-        await taskApi.createTask(
-          yearlyTask.name,
-          year,
-          month,
-          maxDisplayOrder + addedCount + 1,
-          startDateStr,
-          endDateStr
+        createPromises.push(
+          taskApi.createTask(yearlyTask.name, year, month, maxDisplayOrder + orderIndex + 1, startDateStr, endDateStr)
         );
-        addedCount++;
+        orderIndex++;
       }
 
       // スポットタスクを月次タスクとして追加
@@ -1022,29 +1041,43 @@ export const CalendarPage = ({ onNavigateToTemplateCreator, onNavigateToYearlyTa
         let endDateStr: string | undefined = undefined;
 
         if (spotTask.startDay !== null && spotTask.endDay !== null) {
-          // 月末日を超えないように調整
-          const adjustedStartDay = Math.min(spotTask.startDay, daysInMonth);
-          const adjustedEndDay = Math.min(spotTask.endDay, daysInMonth);
-
+          const adjustedStartDay = Math.min(spotTask.startDay, daysInCurrentMonth);
+          const adjustedEndDay = Math.min(spotTask.endDay, daysInCurrentMonth);
           startDateStr = `${year}-${String(month).padStart(2, '0')}-${String(adjustedStartDay).padStart(2, '0')}`;
           endDateStr = `${year}-${String(month).padStart(2, '0')}-${String(adjustedEndDay).padStart(2, '0')}`;
         }
 
-        await taskApi.createTask(
-          spotTask.name,
-          year,
-          month,
-          maxDisplayOrder + addedCount + 1,
-          startDateStr,
-          endDateStr
+        createPromises.push(
+          taskApi.createTask(spotTask.name, year, month, maxDisplayOrder + orderIndex + 1, startDateStr, endDateStr)
         );
-        addedCount++;
+        orderIndex++;
       }
 
-      alert(`タスクを追加しました（月次: ${monthlyTemplateTasks.length}件、年次: ${matchingYearlyTasks.length}件、スポット: ${spotTasks.length}件、合計: ${addedCount}件）`);
-      await fetchData();
+      // 並列でタスク作成を実行
+      const results = await Promise.all(createPromises);
+
+      // レスポンスからタスクを取得してローカル状態に追加
+      const newTasks: TaskWithCompletions[] = results.map(response => ({
+        id: response.task.id,
+        name: response.task.name,
+        year: response.task.year,
+        month: response.task.month,
+        displayOrder: response.task.displayOrder,
+        startDate: response.task.startDate,
+        endDate: response.task.endDate,
+        isCompleted: response.task.isCompleted,
+        parentId: response.task.parentId,
+        completions: {},
+        level: 0,
+      }));
+
+      setTasks(prevTasks => [...prevTasks, ...newTasks]);
+
+      alert(`タスクを追加しました（月次: ${monthlyTemplateTasks.length}件、年次: ${matchingYearlyTasks.length}件、スポット: ${spotTasks.length}件、合計: ${results.length}件）`);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'タスクの貼り付けに失敗しました');
+      // エラー時はデータを再取得
+      await fetchData();
     }
   };
 
