@@ -127,30 +127,54 @@ export const CalendarPage = ({ onNavigateToTemplateCreator, onNavigateToYearlyTa
   }, [editingTaskId, lastSavedTaskId, tasks]);
 
   const handleAddTask = async () => {
-    try {
-      // 新規タスクを末尾に追加（既存タスクの更新は不要）
-      const maxDisplayOrder = tasks.length > 0
-        ? Math.max(...tasks.map(t => t.displayOrder))
-        : 0;
+    // 一時的なIDを生成（APIレスポンス前に画面に表示するため）
+    const tempId = `temp_${Date.now()}`;
+    const maxDisplayOrder = tasks.length > 0
+      ? Math.max(...tasks.map(t => t.displayOrder))
+      : 0;
 
+    // 即座にUIに追加（楽観的更新）
+    const tempTask: TaskWithCompletions = {
+      id: tempId,
+      name: '',
+      year,
+      month,
+      displayOrder: maxDisplayOrder + 1,
+      startDate: null,
+      endDate: null,
+      isCompleted: false,
+      parentId: null,
+      completions: {},
+      level: 0,
+    };
+    setTasks(prevTasks => [...prevTasks, tempTask]);
+    setEditingTaskId(tempId);
+    setEditingTaskName('');
+
+    // バックグラウンドでAPI呼び出し
+    try {
       const response = await taskApi.createTask('', year, month, maxDisplayOrder + 1);
       const newTask = response.task;
 
-      // ローカル状態を即座に更新（リロードなし）
-      const newTaskWithCompletions: TaskWithCompletions = {
-        id: newTask.id,
-        name: newTask.name,
-        year: newTask.year,
-        month: newTask.month,
-        displayOrder: newTask.displayOrder,
-        startDate: newTask.startDate,
-        endDate: newTask.endDate,
-        isCompleted: newTask.isCompleted,
-        parentId: newTask.parentId,
-        completions: {},
-        level: 0,
-      };
-      setTasks(prevTasks => [...prevTasks, newTaskWithCompletions]);
+      // 一時IDを実際のIDに置き換え、名前も取得
+      let savedName = '';
+      setTasks(prevTasks => prevTasks.map(t => {
+        if (t.id === tempId) {
+          savedName = t.name; // 一時タスクに設定された名前を保存
+          return { ...t, id: newTask.id };
+        }
+        return t;
+      }));
+
+      // 編集中のIDも更新
+      setEditingTaskId(prevId => prevId === tempId ? newTask.id : prevId);
+
+      // 一時タスクに名前が設定されていた場合、APIで保存
+      if (savedName) {
+        taskApi.updateTask(newTask.id, { name: savedName }).catch(err => {
+          console.error('Failed to save task name:', err);
+        });
+      }
 
       // Undo履歴に追加
       setUndoStack((prev) => [
@@ -159,15 +183,14 @@ export const CalendarPage = ({ onNavigateToTemplateCreator, onNavigateToYearlyTa
           type: 'create',
           data: {
             taskId: newTask.id,
-            taskName: newTask.name,
+            taskName: savedName || newTask.name,
           },
         },
       ]);
-
-      // 追加後、そのタスクを編集モードにする
-      setEditingTaskId(newTask.id);
-      setEditingTaskName('');
     } catch (err) {
+      // エラー時は一時タスクを削除
+      setTasks(prevTasks => prevTasks.filter(t => t.id !== tempId));
+      setEditingTaskId(null);
       setError(err instanceof Error ? err.message : 'タスクの追加に失敗しました');
     }
   };
@@ -241,21 +264,26 @@ export const CalendarPage = ({ onNavigateToTemplateCreator, onNavigateToYearlyTa
       return;
     }
 
-    try {
-      await taskApi.updateTask(taskId, { name: editingTaskName.trim() });
+    const trimmedName = editingTaskName.trim();
 
-      // ローカル状態を直接更新（リロードなし）
-      setTasks(prevTasks =>
-        prevTasks.map(t =>
-          t.id === taskId ? { ...t, name: editingTaskName.trim() } : t
-        )
-      );
+    // ローカル状態を即座に更新（楽観的更新）
+    setTasks(prevTasks =>
+      prevTasks.map(t =>
+        t.id === taskId ? { ...t, name: trimmedName } : t
+      )
+    );
+    setEditingTaskId(null);
+    setLastSavedTaskId(taskId);
 
-      setEditingTaskId(null);
-      setLastSavedTaskId(taskId); // 次のEnterで下のタスクを編集するため
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'タスク名の更新に失敗しました');
+    // 一時IDの場合はAPI呼び出しをスキップ（createTask完了後に名前が設定される）
+    if (taskId.startsWith('temp_')) {
+      return;
     }
+
+    // バックグラウンドでAPI呼び出し
+    taskApi.updateTask(taskId, { name: trimmedName }).catch(err => {
+      setError(err instanceof Error ? err.message : 'タスク名の更新に失敗しました');
+    });
   };
 
   const handleCancelEditTaskName = () => {
