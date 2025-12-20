@@ -4,7 +4,6 @@ import type {
   Task,
   MonthlyData,
   Stats,
-  SubscriptionStatus,
   Organization,
 } from '../types';
 
@@ -311,32 +310,6 @@ export const templateApi = {
         endMonth: number | null;
       }>;
     }>(response);
-  },
-};
-
-// Subscription API
-export const subscriptionApi = {
-  getStatus: async (): Promise<SubscriptionStatus> => {
-    const response = await fetch(`${API_URL}/api/subscription/status`, {
-      headers: getAuthHeaders(),
-    });
-    return handleResponse<SubscriptionStatus>(response);
-  },
-
-  createCheckoutSession: async (): Promise<{ sessionId: string; url: string }> => {
-    const response = await fetch(`${API_URL}/api/subscription/checkout`, {
-      method: 'POST',
-      headers: getAuthHeaders(),
-    });
-    return handleResponse<{ sessionId: string; url: string }>(response);
-  },
-
-  createPortalSession: async (): Promise<{ url: string }> => {
-    const response = await fetch(`${API_URL}/api/subscription/portal`, {
-      method: 'POST',
-      headers: getAuthHeaders(),
-    });
-    return handleResponse<{ url: string }>(response);
   },
 };
 

@@ -56,17 +56,6 @@ export interface Stats {
   completionRate: number;
 }
 
-export interface SubscriptionStatus {
-  status: 'TRIALING' | 'ACTIVE' | 'PAST_DUE' | 'CANCELED' | 'EXPIRED';
-  planType: 'INDIVIDUAL' | 'ORGANIZATION';
-  trialEndsAt: string | null;
-  trialDaysRemaining: number;
-  currentPeriodEnd: string | null;
-  isActive: boolean;
-  organizationName: string | null;
-  userRole: 'ADMIN' | 'MEMBER';
-}
-
 export interface Organization {
   id: string;
   name: string;
