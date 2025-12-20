@@ -223,9 +223,10 @@ export const applyTemplate = async (
       return;
     }
 
-    // 指定された月の既存タスクを全削除
+    // 指定された月のユーザーの既存タスクを全削除
     await prisma.task.deleteMany({
       where: {
+        userId: req.userId!,
         year,
         month,
       },
@@ -256,6 +257,7 @@ export const applyTemplate = async (
 
       await prisma.task.create({
         data: {
+          userId: req.userId!,
           name: template.taskName,
           year,
           month,
