@@ -51,64 +51,51 @@ export const bulkSaveYearlyTasks = async (
 ): Promise<void> => {
   try {
     const { tasks } = bulkSaveSchema.parse(req.body);
+    const userId = req.userId!;
 
-    // Delete all existing yearly tasks for the user
-    await prisma.yearlyTask.deleteMany({
-      where: { userId: req.userId! },
-    });
+    // Use transaction for atomic operation
+    await prisma.$transaction(async (tx) => {
+      // Delete all existing yearly tasks for the user
+      await tx.yearlyTask.deleteMany({
+        where: { userId },
+      });
 
-    // First pass: Create all tasks without parentId
-    const createdTasks: { id: string; displayOrder: number }[] = [];
-    if (tasks.length > 0) {
-      for (const task of tasks) {
-        const created = await prisma.yearlyTask.create({
-          data: {
-            name: task.name,
-            displayOrder: task.displayOrder,
-            implementationMonth: task.implementationMonth,
-            startDay: task.startDay,
-            endDay: task.endDay,
-            userId: req.userId!,
-          },
-        });
-        createdTasks.push({ id: created.id, displayOrder: created.displayOrder });
+      if (tasks.length === 0) {
+        return;
       }
 
-      // Second pass: Update parentId for tasks that have it
-      for (let i = 0; i < tasks.length; i++) {
-        const task = tasks[i];
-        if (task.parentIndex !== undefined && task.parentIndex !== null && task.parentIndex >= 0 && task.parentIndex < createdTasks.length) {
-          const parentId = createdTasks[task.parentIndex].id;
-          await prisma.yearlyTask.update({
-            where: { id: createdTasks[i].id },
-            data: { parentId },
-          });
+      // Generate UUIDs for all tasks upfront
+      const taskIds = tasks.map(() => crypto.randomUUID());
+
+      // Calculate parentId for each task based on parentIndex
+      const tasksWithParentId = tasks.map((task, index) => {
+        let parentId: string | null = null;
+        if (task.parentIndex !== undefined && task.parentIndex !== null &&
+            task.parentIndex >= 0 && task.parentIndex < taskIds.length) {
+          parentId = taskIds[task.parentIndex];
         }
-      }
-    }
+        return {
+          id: taskIds[index],
+          name: task.name,
+          displayOrder: task.displayOrder,
+          implementationMonth: task.implementationMonth,
+          startDay: task.startDay,
+          endDay: task.endDay,
+          userId,
+          parentId,
+        };
+      });
 
-    // Fetch and return the saved tasks with hierarchy
-    const yearlyTasks = await prisma.yearlyTask.findMany({
-      where: { userId: req.userId! },
-      orderBy: { displayOrder: 'asc' },
-      include: {
-        children: {
-          orderBy: { displayOrder: 'asc' },
-          include: {
-            children: {
-              orderBy: { displayOrder: 'asc' },
-            },
-          },
-        },
-      },
+      // Use createMany for bulk insert (much faster than individual creates)
+      await tx.yearlyTask.createMany({
+        data: tasksWithParentId,
+      });
     });
 
-    const rootTasks = yearlyTasks.filter(task => task.parentId === null);
-
+    // Return simple success response without re-fetching all data
     res.json({
       message: 'Yearly tasks saved successfully',
-      count: yearlyTasks.length,
-      yearlyTasks: rootTasks,
+      count: tasks.length,
     });
   } catch (error) {
     if (error instanceof z.ZodError) {
