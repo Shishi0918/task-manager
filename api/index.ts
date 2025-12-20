@@ -6,6 +6,7 @@ import completionRoutes from '../backend/src/routes/completion.routes.js';
 import templateRoutes from '../backend/src/routes/template.routes.js';
 import organizationRoutes from '../backend/src/routes/organization.routes.js';
 import spotTaskRoutes from '../backend/src/routes/spotTask.routes.js';
+import yearlyTaskRoutes from '../backend/src/routes/yearlyTask.routes.js';
 
 const app = express();
 
@@ -20,6 +21,7 @@ app.use('/api/completions', completionRoutes);
 app.use('/api/templates', templateRoutes);
 app.use('/api/organization', organizationRoutes);
 app.use('/api/spot-tasks', spotTaskRoutes);
+app.use('/api/yearly-tasks', yearlyTaskRoutes);
 
 // Health check
 app.get('/api/health', (_req, res) => {
