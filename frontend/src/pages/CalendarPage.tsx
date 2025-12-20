@@ -55,8 +55,10 @@ export const CalendarPage = ({ onNavigateToTemplateCreator, onNavigateToYearlyTa
   const daysInMonth = new Date(year, month, 0).getDate();
   const days = Array.from({ length: daysInMonth }, (_, i) => i + 1);
 
-  const fetchData = async () => {
-    setLoading(true);
+  const fetchData = async (showLoading = true) => {
+    if (showLoading) {
+      setLoading(true);
+    }
     setError('');
     try {
       const [completionsData, statsData] = await Promise.all([
@@ -82,17 +84,21 @@ export const CalendarPage = ({ onNavigateToTemplateCreator, onNavigateToYearlyTa
     // キャッシュから先にデータを読み込み（即座に表示）
     const cacheKey = `tasks_${year}_${month}`;
     const cachedData = localStorage.getItem(cacheKey);
+    let hasCachedData = false;
+
     if (cachedData) {
       try {
         const cachedTasks = JSON.parse(cachedData);
         setTasks(cachedTasks);
         setLoading(false); // キャッシュがあれば即座にロード完了
+        hasCachedData = true;
       } catch {
         // キャッシュが壊れている場合は無視
       }
     }
-    // バックグラウンドで最新データを取得
-    fetchData();
+
+    // バックグラウンドで最新データを取得（キャッシュがあればローディング表示なし）
+    fetchData(!hasCachedData);
   }, [year, month]);
 
   // Enterキーで次のタスクを編集するためのキーボードリスナー
