@@ -1,5 +1,6 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
 import { useAuth } from '../contexts/AuthContext';
+import { yearlyTaskApi, type YearlyTask as ApiYearlyTask } from '../services/api';
 
 interface YearlyTask {
   id: string;
@@ -12,6 +13,27 @@ interface YearlyTask {
   level?: number;
 }
 
+// APIの階層構造をフラットな配列に変換
+const flattenTasks = (tasks: ApiYearlyTask[], level = 0): YearlyTask[] => {
+  const result: YearlyTask[] = [];
+  for (const task of tasks) {
+    result.push({
+      id: task.id,
+      name: task.name,
+      displayOrder: task.displayOrder,
+      implementationMonth: task.implementationMonth,
+      startDay: task.startDay,
+      endDay: task.endDay,
+      parentId: task.parentId,
+      level,
+    });
+    if (task.children && task.children.length > 0) {
+      result.push(...flattenTasks(task.children, level + 1));
+    }
+  }
+  return result;
+};
+
 interface YearlyTaskCreatorPageProps {
   onBack: () => void;
 }
@@ -19,8 +41,11 @@ interface YearlyTaskCreatorPageProps {
 export const YearlyTaskCreatorPage = ({ onBack }: YearlyTaskCreatorPageProps) => {
   const { user, logout } = useAuth();
   const [tasks, setTasks] = useState<YearlyTask[]>([]);
-  const [error, _setError] = useState('');
+  const [error, setError] = useState('');
   const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false);
+  const [initialLoadComplete, setInitialLoadComplete] = useState(false);
   const [selectedStartDays, setSelectedStartDays] = useState<Record<string, number | null>>({});
   const [hoverDays, setHoverDays] = useState<Record<string, number | null>>({});
   const [checkedTasks, setCheckedTasks] = useState<Set<string>>(new Set());
@@ -40,37 +65,70 @@ export const YearlyTaskCreatorPage = ({ onBack }: YearlyTaskCreatorPageProps) =>
   // 1-31日を固定で表示
   const days = Array.from({ length: 31 }, (_, i) => i + 1);
 
-  // 初回ロード時にlocalStorageから年次タスクを読み込む
+  // 初回ロード時にAPIから年次タスクを読み込む
   useEffect(() => {
     if (!user?.id) {
       setLoading(false);
       return;
     }
-    try {
-      const cacheKey = `yearlyTasks_${user.id}`;
-      const savedTasks = localStorage.getItem(cacheKey);
-      if (savedTasks) {
-        const loadedTasks: YearlyTask[] = JSON.parse(savedTasks);
-        setTasks(loadedTasks);
+    const loadTasks = async () => {
+      try {
+        const data = await yearlyTaskApi.getAll();
+        const flatTasks = flattenTasks(data.yearlyTasks);
+        setTasks(flatTasks);
+      } catch (err) {
+        console.error('年次タスクの読み込みに失敗:', err);
+        setError('年次タスクの読み込みに失敗しました');
+      } finally {
+        setLoading(false);
+        // 少し遅延させてから初回ロード完了フラグを立てる
+        setTimeout(() => setInitialLoadComplete(true), 100);
       }
-    } catch (err) {
-      console.error('年次タスクの読み込みに失敗:', err);
-    } finally {
-      setLoading(false);
-    }
+    };
+    loadTasks();
   }, [user?.id]);
 
-  // タスクが変更されたらlocalStorageに保存（初回ロード後のみ）
-  useEffect(() => {
-    if (loading || !user?.id) return; // 初回ロード中またはユーザー未確定時はスキップ
+  // 保存処理
+  const handleSave = useCallback(async () => {
+    if (saving || !hasUnsavedChanges) return;
+
+    setSaving(true);
+    setError('');
 
     try {
-      const cacheKey = `yearlyTasks_${user.id}`;
-      localStorage.setItem(cacheKey, JSON.stringify(tasks));
+      // タスクの配列からparentIndexを計算
+      const tasksWithParentIndex = tasks.map((task, index) => {
+        let parentIndex: number | null = null;
+        if (task.parentId) {
+          parentIndex = tasks.findIndex(t => t.id === task.parentId);
+          if (parentIndex === -1) parentIndex = null;
+        }
+        return {
+          name: task.name,
+          displayOrder: index + 1,
+          implementationMonth: task.implementationMonth,
+          startDay: task.startDay,
+          endDay: task.endDay,
+          parentIndex,
+        };
+      });
+
+      await yearlyTaskApi.bulkSave(tasksWithParentIndex);
+      setHasUnsavedChanges(false);
     } catch (err) {
       console.error('年次タスクの保存に失敗:', err);
+      setError('年次タスクの保存に失敗しました');
+    } finally {
+      setSaving(false);
     }
-  }, [tasks, loading, user?.id]);
+  }, [tasks, saving, hasUnsavedChanges]);
+
+  // タスクが変更されたら未保存フラグを立てる（初回ロード完了後のみ）
+  useEffect(() => {
+    if (initialLoadComplete) {
+      setHasUnsavedChanges(true);
+    }
+  }, [tasks, initialLoadComplete]);
 
   // Enterキーで次のタスクを編集するためのキーボードリスナー
   useEffect(() => {
@@ -804,6 +862,17 @@ export const YearlyTaskCreatorPage = ({ onBack }: YearlyTaskCreatorPageProps) =>
                 className="hidden"
               />
             </label>
+            <button
+              onClick={handleSave}
+              disabled={saving || !hasUnsavedChanges}
+              className={`px-4 py-2 text-white rounded ${
+                saving || !hasUnsavedChanges
+                  ? 'bg-gray-400 cursor-not-allowed'
+                  : 'bg-indigo-600 hover:bg-indigo-700'
+              }`}
+            >
+              {saving ? '保存中...' : hasUnsavedChanges ? '保存' : '保存済み'}
+            </button>
           </div>
 
           <div className="overflow-x-auto">

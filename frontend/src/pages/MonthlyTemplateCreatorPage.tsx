@@ -1,5 +1,9 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
 import { useAuth } from '../contexts/AuthContext';
+import { templateApi } from '../services/api';
+
+// デフォルトの月次テンプレート名
+const DEFAULT_TEMPLATE_NAME = '__default_monthly__';
 
 interface MonthlyTemplateTask {
   id: string;
@@ -18,8 +22,11 @@ interface MonthlyTemplateCreatorPageProps {
 export const MonthlyTemplateCreatorPage = ({ onBack }: MonthlyTemplateCreatorPageProps) => {
   const { user, logout } = useAuth();
   const [tasks, setTasks] = useState<MonthlyTemplateTask[]>([]);
-  const [error, _setError] = useState('');
+  const [error, setError] = useState('');
   const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false);
+  const [initialLoadComplete, setInitialLoadComplete] = useState(false);
   const [selectedStartDays, setSelectedStartDays] = useState<Record<string, number | null>>({});
   const [hoverDays, setHoverDays] = useState<Record<string, number | null>>({});
   const [checkedTasks, setCheckedTasks] = useState<Set<string>>(new Set());
@@ -37,37 +44,65 @@ export const MonthlyTemplateCreatorPage = ({ onBack }: MonthlyTemplateCreatorPag
   // 1-31日を固定で表示
   const days = Array.from({ length: 31 }, (_, i) => i + 1);
 
-  // 初回ロード時にlocalStorageから月次テンプレートを読み込む
+  // 初回ロード時にAPIから月次テンプレートを読み込む
   useEffect(() => {
     if (!user?.id) {
       setLoading(false);
       return;
     }
-    try {
-      const cacheKey = `monthlyTemplate_${user.id}`;
-      const savedTasks = localStorage.getItem(cacheKey);
-      if (savedTasks) {
-        const loadedTasks: MonthlyTemplateTask[] = JSON.parse(savedTasks);
+    const loadTasks = async () => {
+      try {
+        const data = await templateApi.getTemplateDetails(DEFAULT_TEMPLATE_NAME);
+        const loadedTasks: MonthlyTemplateTask[] = data.tasks.map((task, index) => ({
+          id: crypto.randomUUID(),
+          name: task.name,
+          displayOrder: task.displayOrder || index + 1,
+          startDay: task.startDay,
+          endDay: task.endDay,
+        }));
         setTasks(loadedTasks);
+      } catch (err) {
+        // テンプレートが見つからない場合は空のまま
+        console.log('月次テンプレートが見つかりません（新規作成）');
+      } finally {
+        setLoading(false);
+        setTimeout(() => setInitialLoadComplete(true), 100);
       }
-    } catch (err) {
-      console.error('月次テンプレートの読み込みに失敗:', err);
-    } finally {
-      setLoading(false);
-    }
+    };
+    loadTasks();
   }, [user?.id]);
 
-  // タスクが変更されたらlocalStorageに保存（初回ロード後のみ）
-  useEffect(() => {
-    if (loading || !user?.id) return; // 初回ロード中またはユーザー未確定時はスキップ
+  // 保存処理
+  const handleSave = useCallback(async () => {
+    if (saving || !hasUnsavedChanges) return;
+
+    setSaving(true);
+    setError('');
 
     try {
-      const cacheKey = `monthlyTemplate_${user.id}`;
-      localStorage.setItem(cacheKey, JSON.stringify(tasks));
+      const tasksToSave = tasks.map((task, index) => ({
+        name: task.name,
+        displayOrder: index + 1,
+        startDay: task.startDay,
+        endDay: task.endDay,
+      }));
+
+      await templateApi.saveMonthlyTemplate(DEFAULT_TEMPLATE_NAME, tasksToSave);
+      setHasUnsavedChanges(false);
     } catch (err) {
       console.error('月次テンプレートの保存に失敗:', err);
+      setError('月次テンプレートの保存に失敗しました');
+    } finally {
+      setSaving(false);
     }
-  }, [tasks, loading, user?.id]);
+  }, [tasks, saving, hasUnsavedChanges]);
+
+  // タスクが変更されたら未保存フラグを立てる（初回ロード完了後のみ）
+  useEffect(() => {
+    if (initialLoadComplete) {
+      setHasUnsavedChanges(true);
+    }
+  }, [tasks, initialLoadComplete]);
 
   // Enterキーで次のタスクを編集するためのキーボードリスナー
   useEffect(() => {
@@ -762,6 +797,17 @@ export const MonthlyTemplateCreatorPage = ({ onBack }: MonthlyTemplateCreatorPag
                 className="hidden"
               />
             </label>
+            <button
+              onClick={handleSave}
+              disabled={saving || !hasUnsavedChanges}
+              className={`px-4 py-2 text-white rounded ${
+                saving || !hasUnsavedChanges
+                  ? 'bg-gray-400 cursor-not-allowed'
+                  : 'bg-indigo-600 hover:bg-indigo-700'
+              }`}
+            >
+              {saving ? '保存中...' : hasUnsavedChanges ? '保存' : '保存済み'}
+            </button>
           </div>
 
           <div className="overflow-x-auto">

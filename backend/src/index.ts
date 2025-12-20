@@ -7,6 +7,7 @@ import completionRoutes from './routes/completion.routes.js';
 import templateRoutes from './routes/template.routes.js';
 import spotTaskRoutes from './routes/spotTask.routes.js';
 import organizationRoutes from './routes/organization.routes.js';
+import yearlyTaskRoutes from './routes/yearlyTask.routes.js';
 
 dotenv.config();
 
@@ -24,6 +25,7 @@ app.use('/api/completions', completionRoutes);
 app.use('/api/templates', templateRoutes);
 app.use('/api/spot-tasks', spotTaskRoutes);
 app.use('/api/organization', organizationRoutes);
+app.use('/api/yearly-tasks', yearlyTaskRoutes);
 
 // Health check
 app.get('/health', (_req, res) => {

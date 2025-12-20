@@ -448,3 +448,44 @@ export const spotTaskApi = {
     return handleResponse<{ message: string; count: number; spotTasks: SpotTask[] }>(response);
   },
 };
+
+// YearlyTask type
+export interface YearlyTask {
+  id: string;
+  name: string;
+  displayOrder: number;
+  implementationMonth: number | null;
+  startDay: number | null;
+  endDay: number | null;
+  parentId?: string | null;
+  children?: YearlyTask[];
+  level?: number;
+}
+
+// YearlyTask API
+export const yearlyTaskApi = {
+  getAll: async (): Promise<{ yearlyTasks: YearlyTask[] }> => {
+    const response = await fetch(`${API_URL}/api/yearly-tasks`, {
+      headers: getAuthHeaders(),
+    });
+    return handleResponse<{ yearlyTasks: YearlyTask[] }>(response);
+  },
+
+  bulkSave: async (
+    tasks: Array<{
+      name: string;
+      displayOrder: number;
+      implementationMonth: number | null;
+      startDay: number | null;
+      endDay: number | null;
+      parentIndex?: number | null;
+    }>
+  ): Promise<{ message: string; count: number; yearlyTasks: YearlyTask[] }> => {
+    const response = await fetch(`${API_URL}/api/yearly-tasks/bulk-save`, {
+      method: 'POST',
+      headers: getAuthHeaders(),
+      body: JSON.stringify({ tasks }),
+    });
+    return handleResponse<{ message: string; count: number; yearlyTasks: YearlyTask[] }>(response);
+  },
+};
