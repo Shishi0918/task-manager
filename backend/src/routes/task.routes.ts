@@ -7,12 +7,13 @@ import {
   carryForwardTasks,
 } from '../controllers/task.controller.js';
 import { authMiddleware } from '../middleware/auth.js';
-import { requireActiveSubscription } from '../middleware/subscription.js';
+// import { requireActiveSubscription } from '../middleware/subscription.js';
 
 const router = Router();
 
 router.use(authMiddleware);
-router.use(requireActiveSubscription);
+// Subscription check temporarily disabled
+// router.use(requireActiveSubscription);
 
 router.get('/', getTasks);
 router.post('/', createTask);

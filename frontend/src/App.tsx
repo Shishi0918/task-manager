@@ -41,15 +41,16 @@ function AppContent() {
     return <LoginPage />;
   }
 
-  // Check subscription status - allow organization page even without active subscription
-  if (!subscription?.isActive && currentPage !== 'organization' && currentPage !== 'planSelection') {
-    return (
-      <SubscriptionRequiredPage
-        onNavigateToOrganization={() => setCurrentPage('organization')}
-        onNavigateToPlanSelection={() => setCurrentPage('planSelection')}
-      />
-    );
-  }
+  // Subscription check is temporarily disabled
+  // To re-enable, uncomment the block below:
+  // if (!subscription?.isActive && currentPage !== 'organization' && currentPage !== 'planSelection') {
+  //   return (
+  //     <SubscriptionRequiredPage
+  //       onNavigateToOrganization={() => setCurrentPage('organization')}
+  //       onNavigateToPlanSelection={() => setCurrentPage('planSelection')}
+  //     />
+  //   );
+  // }
 
   if (currentPage === 'planSelection') {
     return <PlanSelectionPage onBack={() => setCurrentPage('calendar')} />;
