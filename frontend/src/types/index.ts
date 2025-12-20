@@ -14,6 +14,8 @@ export interface Task {
   endDate?: string | null;
   isActive: boolean;
   isCompleted: boolean;
+  parentId?: string | null;
+  children?: Task[];
   createdAt: string;
   updatedAt: string;
 }
@@ -27,7 +29,10 @@ export interface TaskWithCompletions {
   startDate?: string | null;
   endDate?: string | null;
   isCompleted: boolean;
+  parentId?: string | null;
+  children?: TaskWithCompletions[];
   completions: Record<string, boolean>;
+  level?: number; // 階層レベル（0=ルート、1=第1階層、2=第2階層）
 }
 
 export interface MonthlyData {
@@ -86,4 +91,17 @@ export interface Invitation {
   email: string;
   expiresAt: string;
   createdAt: string;
+}
+
+export interface SpotTask {
+  id: string;
+  name: string;
+  displayOrder: number;
+  implementationYear: number;
+  implementationMonth: number;
+  startDay: number | null;
+  endDay: number | null;
+  parentId?: string | null;
+  children?: SpotTask[];
+  level?: number;
 }

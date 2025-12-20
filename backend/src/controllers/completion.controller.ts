@@ -29,6 +29,7 @@ export const getCompletions = async (
     const startDate = new Date(yearNum, monthNum - 1, 1);
     const endDate = new Date(yearNum, monthNum, 0);
 
+    // 全タスクを取得（親子関係を含む）
     const tasks = await prisma.task.findMany({
       where: {
         isActive: true,
@@ -46,32 +47,74 @@ export const getCompletions = async (
             },
           },
         },
+        children: {
+          where: { isActive: true },
+          orderBy: { displayOrder: 'asc' },
+          include: {
+            completions: {
+              where: {
+                userId: req.userId,
+                targetDate: {
+                  gte: startDate,
+                  lte: endDate,
+                },
+              },
+            },
+            children: {
+              where: { isActive: true },
+              orderBy: { displayOrder: 'asc' },
+              include: {
+                completions: {
+                  where: {
+                    userId: req.userId,
+                    targetDate: {
+                      gte: startDate,
+                      lte: endDate,
+                    },
+                  },
+                },
+              },
+            },
+          },
+        },
       },
     });
 
-    const tasksWithCompletions = tasks.map((task) => {
+    // タスクを再帰的に変換するヘルパー関数
+    const transformTask = (task: any): any => {
       const completions: Record<string, boolean> = {};
 
-      task.completions.forEach((completion) => {
-        const dateStr = completion.targetDate.toISOString().split('T')[0];
-        completions[dateStr] = completion.isCompleted;
-      });
+      if (task.completions) {
+        task.completions.forEach((completion: any) => {
+          const dateStr = completion.targetDate.toISOString().split('T')[0];
+          completions[dateStr] = completion.isCompleted;
+        });
+      }
 
       return {
         id: task.id,
         name: task.name,
+        year: task.year,
+        month: task.month,
         displayOrder: task.displayOrder,
         startDate: task.startDate ? task.startDate.toISOString().split('T')[0] : null,
         endDate: task.endDate ? task.endDate.toISOString().split('T')[0] : null,
         isCompleted: task.isCompleted,
+        parentId: task.parentId,
+        children: task.children ? task.children.map(transformTask) : [],
         completions,
       };
-    });
+    };
+
+    // ルートレベルのタスクのみを返す（parentIdがnull）
+    const rootTasks = tasks
+      .filter(task => task.parentId === null)
+      .map(transformTask);
 
     res.json({
       year: yearNum,
       month: monthNum,
-      tasks: tasksWithCompletions,
+      tasks: rootTasks,
     });
   } catch (error) {
     console.error('Get completions error:', error);

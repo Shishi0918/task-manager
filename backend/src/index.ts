@@ -5,6 +5,7 @@ import authRoutes from './routes/auth.routes.js';
 import taskRoutes from './routes/task.routes.js';
 import completionRoutes from './routes/completion.routes.js';
 import templateRoutes from './routes/template.routes.js';
+import spotTaskRoutes from './routes/spotTask.routes.js';
 import subscriptionRoutes from './routes/subscription.routes.js';
 import organizationRoutes from './routes/organization.routes.js';
 import webhookRoutes from './routes/webhook.routes.js';
@@ -26,6 +27,7 @@ app.use('/api/auth', authRoutes);
 app.use('/api/tasks', taskRoutes);
 app.use('/api/completions', completionRoutes);
 app.use('/api/templates', templateRoutes);
+app.use('/api/spot-tasks', spotTaskRoutes);
 app.use('/api/subscription', subscriptionRoutes);
 app.use('/api/organization', organizationRoutes);
 

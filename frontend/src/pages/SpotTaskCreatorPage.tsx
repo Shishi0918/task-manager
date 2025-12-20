@@ -1,31 +1,51 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
 import { useAuth } from '../contexts/AuthContext';
+import { spotTaskApi } from '../services/api';
 
-interface YearlyTask {
+interface SpotTaskCreatorPageProps {
+  onBack: () => void;
+}
+
+interface LocalSpotTask {
   id: string;
   name: string;
   displayOrder: number;
-  implementationMonth: number | null;
+  implementationYear: number;
+  implementationMonth: number;
   startDay: number | null;
   endDay: number | null;
   parentId?: string | null;
   level?: number;
+  children?: LocalSpotTask[];
 }
 
-interface YearlyTaskCreatorPageProps {
-  onBack: () => void;
-}
+// 階層タスクをフラット化する関数
+const flattenTasks = (
+  tasks: LocalSpotTask[],
+  level: number = 0
+): LocalSpotTask[] => {
+  const result: LocalSpotTask[] = [];
+  for (const task of tasks) {
+    result.push({ ...task, level });
+    if (task.children && task.children.length > 0) {
+      result.push(...flattenTasks(task.children, level + 1));
+    }
+  }
+  return result;
+};
 
-export const YearlyTaskCreatorPage = ({ onBack }: YearlyTaskCreatorPageProps) => {
+export const SpotTaskCreatorPage = ({ onBack }: SpotTaskCreatorPageProps) => {
   const { user, logout } = useAuth();
-  const [tasks, setTasks] = useState<YearlyTask[]>([]);
-  const [error, _setError] = useState('');
+  const [tasks, setTasks] = useState<LocalSpotTask[]>([]);
+  const [error, setError] = useState('');
   const [loading, setLoading] = useState(true);
   const [selectedStartDays, setSelectedStartDays] = useState<Record<string, number | null>>({});
   const [hoverDays, setHoverDays] = useState<Record<string, number | null>>({});
   const [checkedTasks, setCheckedTasks] = useState<Set<string>>(new Set());
   const [editingTaskId, setEditingTaskId] = useState<string | null>(null);
   const [editingTaskName, setEditingTaskName] = useState('');
+  const [editingYearId, setEditingYearId] = useState<string | null>(null);
+  const [editingYearValue, setEditingYearValue] = useState('');
   const [editingMonthId, setEditingMonthId] = useState<string | null>(null);
   const [editingMonthValue, setEditingMonthValue] = useState('');
   const [isComposing, setIsComposing] = useState(false);
@@ -35,36 +55,107 @@ export const YearlyTaskCreatorPage = ({ onBack }: YearlyTaskCreatorPageProps) =>
   const [dragOverBottom, setDragOverBottom] = useState(false);
   const [dragMode, setDragMode] = useState<'reorder' | 'nest' | 'unnest'>('reorder');
   const [nestTargetTaskId, setNestTargetTaskId] = useState<string | null>(null);
+  const [isInitialLoad, setIsInitialLoad] = useState(true);
   const tableRef = useRef<HTMLTableElement>(null);
+  const saveTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  // 1-31日を固定で表示
+  const currentYear = new Date().getFullYear();
   const days = Array.from({ length: 31 }, (_, i) => i + 1);
 
-  // 初回ロード時にlocalStorageから年次タスクを読み込む
-  useEffect(() => {
+  // 保存中フラグ
+  const isSavingRef = useRef(false);
+
+  // 自動保存関数
+  const autoSave = useCallback(async (tasksToSave: LocalSpotTask[]) => {
+    if (isSavingRef.current) return;
+    isSavingRef.current = true;
+
     try {
-      const savedTasks = localStorage.getItem('yearlyTasks');
-      if (savedTasks) {
-        const loadedTasks: YearlyTask[] = JSON.parse(savedTasks);
-        setTasks(loadedTasks);
-      }
+      // 親タスクのインデックスを計算
+      const data = tasksToSave.map((t) => {
+        let parentIndex: number | null = null;
+        if (t.parentId) {
+          parentIndex = tasksToSave.findIndex(p => p.id === t.parentId);
+          if (parentIndex === -1) parentIndex = null;
+        }
+        return {
+          name: t.name,
+          displayOrder: t.displayOrder,
+          implementationYear: t.implementationYear,
+          implementationMonth: t.implementationMonth,
+          startDay: t.startDay,
+          endDay: t.endDay,
+          parentIndex,
+        };
+      });
+
+      await spotTaskApi.bulkSave(data);
+      // 保存成功後、ローカルのIDはそのまま使用し続ける
     } catch (err) {
-      console.error('年次タスクの読み込みに失敗:', err);
+      console.error('スポットタスクの自動保存に失敗:', err);
+      setError('スポットタスクの保存に失敗しました');
     } finally {
-      setLoading(false);
+      isSavingRef.current = false;
     }
   }, []);
 
-  // タスクが変更されたらlocalStorageに保存（初回ロード後のみ）
+  // タスクが変更されたら自動保存（デバウンス付き）
   useEffect(() => {
-    if (loading) return; // 初回ロード中はスキップ
+    if (isInitialLoad) return;
 
-    try {
-      localStorage.setItem('yearlyTasks', JSON.stringify(tasks));
-    } catch (err) {
-      console.error('年次タスクの保存に失敗:', err);
+    if (saveTimeoutRef.current) {
+      clearTimeout(saveTimeoutRef.current);
     }
-  }, [tasks, loading]);
+
+    saveTimeoutRef.current = setTimeout(() => {
+      autoSave(tasks);
+    }, 500);
+
+    return () => {
+      if (saveTimeoutRef.current) {
+        clearTimeout(saveTimeoutRef.current);
+      }
+    };
+  }, [tasks, isInitialLoad, autoSave]);
+
+  // Load spot tasks from server
+  useEffect(() => {
+    const loadTasks = async () => {
+      try {
+        const { spotTasks } = await spotTaskApi.getAll();
+        // 階層構造をフラット化
+        const flattenedTasks = flattenTasks(spotTasks.map(t => ({
+          id: t.id,
+          name: t.name,
+          displayOrder: t.displayOrder,
+          implementationYear: t.implementationYear,
+          implementationMonth: t.implementationMonth,
+          startDay: t.startDay,
+          endDay: t.endDay,
+          parentId: t.parentId,
+          children: t.children?.map((c: any) => ({
+            id: c.id,
+            name: c.name,
+            displayOrder: c.displayOrder,
+            implementationYear: c.implementationYear,
+            implementationMonth: c.implementationMonth,
+            startDay: c.startDay,
+            endDay: c.endDay,
+            parentId: c.parentId,
+            children: c.children,
+          })),
+        })));
+        setTasks(flattenedTasks);
+      } catch (err) {
+        console.error('スポットタスクの読み込みに失敗:', err);
+        setError('スポットタスクの読み込みに失敗しました');
+      } finally {
+        setLoading(false);
+        setIsInitialLoad(false);
+      }
+    };
+    loadTasks();
+  }, []);
 
   // Enterキーで次のタスクを編集するためのキーボードリスナー
   useEffect(() => {
@@ -94,25 +185,22 @@ export const YearlyTaskCreatorPage = ({ onBack }: YearlyTaskCreatorPageProps) =>
   }, [editingTaskId, lastSavedTaskId, tasks]);
 
   const handleAddTask = () => {
-    const newTask: YearlyTask = {
+    const newTask: LocalSpotTask = {
       id: crypto.randomUUID(),
       name: '',
-      displayOrder: tasks.length + 1,
-      implementationMonth: null,
+      displayOrder: 1,
+      implementationYear: currentYear,
+      implementationMonth: 1,
       startDay: null,
       endDay: null,
     };
 
-    // 既存のタスクのdisplayOrderをすべて+1する
     const updatedTasks = tasks.map(t => ({
       ...t,
       displayOrder: t.displayOrder + 1,
     }));
 
-    // 新規タスクをdisplayOrder=1で追加（一番上）
-    setTasks([{ ...newTask, displayOrder: 1 }, ...updatedTasks]);
-
-    // 追加後、そのタスクを編集モードにする
+    setTasks([newTask, ...updatedTasks]);
     setEditingTaskId(newTask.id);
     setEditingTaskName('');
   };
@@ -131,19 +219,14 @@ export const YearlyTaskCreatorPage = ({ onBack }: YearlyTaskCreatorPageProps) =>
 
   const handleToggleAllTasks = () => {
     if (checkedTasks.size === tasks.length) {
-      // 全て選択されている場合は全解除
       setCheckedTasks(new Set());
     } else {
-      // 一部または何も選択されていない場合は全選択
       setCheckedTasks(new Set(tasks.map(t => t.id)));
     }
   };
 
   const handleBulkDelete = () => {
-    if (checkedTasks.size === 0) {
-      return;
-    }
-
+    if (checkedTasks.size === 0) return;
     setTasks(tasks.filter(task => !checkedTasks.has(task.id)));
     setCheckedTasks(new Set());
   };
@@ -160,7 +243,6 @@ export const YearlyTaskCreatorPage = ({ onBack }: YearlyTaskCreatorPageProps) =>
       setLastSavedTaskId(null);
       return;
     }
-
     setTasks(tasks.map(t =>
       t.id === taskId ? { ...t, name: editingTaskName.trim() } : t
     ));
@@ -174,14 +256,56 @@ export const YearlyTaskCreatorPage = ({ onBack }: YearlyTaskCreatorPageProps) =>
     setLastSavedTaskId(null);
   };
 
+  const handleStartEditYear = (taskId: string, currentYear: number) => {
+    setEditingYearId(taskId);
+    setEditingYearValue(String(currentYear));
+  };
+
+  const handleSaveYear = (taskId: string) => {
+    const yearValue = parseInt(editingYearValue);
+    if (isNaN(yearValue) || yearValue < 2000 || yearValue > 2100) {
+      setEditingYearId(null);
+      return;
+    }
+    setTasks(tasks.map(t =>
+      t.id === taskId ? { ...t, implementationYear: yearValue } : t
+    ));
+    setEditingYearId(null);
+  };
+
+  const handleCancelEditYear = () => {
+    setEditingYearId(null);
+    setEditingYearValue('');
+  };
+
+  const handleStartEditMonth = (taskId: string, currentMonth: number) => {
+    setEditingMonthId(taskId);
+    setEditingMonthValue(String(currentMonth));
+  };
+
+  const handleSaveMonth = (taskId: string) => {
+    const monthValue = parseInt(editingMonthValue);
+    if (isNaN(monthValue) || monthValue < 1 || monthValue > 12) {
+      setEditingMonthId(null);
+      return;
+    }
+    setTasks(tasks.map(t =>
+      t.id === taskId ? { ...t, implementationMonth: monthValue } : t
+    ));
+    setEditingMonthId(null);
+  };
+
+  const handleCancelEditMonth = () => {
+    setEditingMonthId(null);
+    setEditingMonthValue('');
+  };
+
   const handleCellClick = (taskId: string, day: number) => {
     const currentStartDay = selectedStartDays[taskId];
 
     if (currentStartDay === null || currentStartDay === undefined) {
-      // 1クリック目: 開始日を設定
       setSelectedStartDays({ ...selectedStartDays, [taskId]: day });
     } else {
-      // 2クリック目: 終了日を設定
       const startDay = Math.min(currentStartDay, day);
       const endDay = Math.max(currentStartDay, day);
 
@@ -194,58 +318,25 @@ export const YearlyTaskCreatorPage = ({ onBack }: YearlyTaskCreatorPageProps) =>
     }
   };
 
-  const isDayInRange = (task: YearlyTask, day: number): boolean => {
+  const isDayInRange = (task: LocalSpotTask, day: number): boolean => {
     if (task.startDay === null || task.endDay === null) return false;
     return day >= task.startDay && day <= task.endDay;
   };
 
-  const handleStartEditMonth = (taskId: string, currentMonth: number | null) => {
-    setEditingMonthId(taskId);
-    setEditingMonthValue(currentMonth !== null ? String(currentMonth) : '');
-  };
-
-  const handleSaveMonth = (taskId: string) => {
-    const monthValue = parseInt(editingMonthValue);
-
-    if (editingMonthValue === '' || isNaN(monthValue) || monthValue < 1 || monthValue > 12) {
-      // 空または無効な値の場合はnullをセット
-      setTasks(tasks.map(t =>
-        t.id === taskId ? { ...t, implementationMonth: null } : t
-      ));
-    } else {
-      setTasks(tasks.map(t =>
-        t.id === taskId ? { ...t, implementationMonth: monthValue } : t
-      ));
-    }
-
-    setEditingMonthId(null);
-  };
-
-  const handleCancelEditMonth = () => {
-    setEditingMonthId(null);
-    setEditingMonthValue('');
-  };
-
-  const handleSortByImplementationMonth = () => {
+  const handleSortByYearMonth = () => {
     const sorted = [...tasks].sort((a, b) => {
-      // implementationMonthがない場合は後ろに配置
-      if (a.implementationMonth === null && b.implementationMonth === null) return 0;
-      if (a.implementationMonth === null) return 1;
-      if (b.implementationMonth === null) return -1;
-
-      // implementationMonthで比較
+      if (a.implementationYear !== b.implementationYear) {
+        return a.implementationYear - b.implementationYear;
+      }
       if (a.implementationMonth !== b.implementationMonth) {
         return a.implementationMonth - b.implementationMonth;
       }
-
-      // 同じ月の場合はstartDayで比較
       if (a.startDay === null && b.startDay === null) return 0;
       if (a.startDay === null) return 1;
       if (b.startDay === null) return -1;
       return a.startDay - b.startDay;
     });
 
-    // displayOrderを再割り当て
     const reorderedTasks = sorted.map((task, index) => ({
       ...task,
       displayOrder: index + 1,
@@ -267,20 +358,6 @@ export const YearlyTaskCreatorPage = ({ onBack }: YearlyTaskCreatorPageProps) =>
       if (tasks[i].id === taskId) return true;
     }
     return false;
-  };
-
-  // 子孫タスクの数を取得するヘルパー
-  const getDescendantCount = (taskIndex: number): number => {
-    const taskLevel = tasks[taskIndex].level ?? 0;
-    let count = 0;
-    for (let i = taskIndex + 1; i < tasks.length; i++) {
-      if ((tasks[i].level ?? 0) > taskLevel) {
-        count++;
-      } else {
-        break;
-      }
-    }
-    return count;
   };
 
   // ドラッグ&ドロップ関連のハンドラー
@@ -402,6 +479,20 @@ export const YearlyTaskCreatorPage = ({ onBack }: YearlyTaskCreatorPageProps) =>
     }
   };
 
+  // 子孫タスクの数を取得するヘルパー
+  const getDescendantCount = (taskIndex: number): number => {
+    const taskLevel = tasks[taskIndex].level ?? 0;
+    let count = 0;
+    for (let i = taskIndex + 1; i < tasks.length; i++) {
+      if ((tasks[i].level ?? 0) > taskLevel) {
+        count++;
+      } else {
+        break;
+      }
+    }
+    return count;
+  };
+
   const handleDrop = (e: React.DragEvent, targetTaskId?: string) => {
     e.preventDefault();
 
@@ -433,6 +524,7 @@ export const YearlyTaskCreatorPage = ({ onBack }: YearlyTaskCreatorPageProps) =>
           const draggedIndex = newTasks.findIndex(t => t.id === draggedTaskId);
           if (draggedIndex === -1) return prevTasks;
 
+          // 子孫タスクの数を計算
           const taskLevel = newTasks[draggedIndex].level ?? 0;
           let descendantCount = 0;
           for (let i = draggedIndex + 1; i < newTasks.length; i++) {
@@ -443,13 +535,16 @@ export const YearlyTaskCreatorPage = ({ onBack }: YearlyTaskCreatorPageProps) =>
             }
           }
 
+          // 移動するグループを抽出
           const movedGroup = newTasks.splice(draggedIndex, 1 + descendantCount);
 
+          // レベルを1つ下げる
           movedGroup.forEach(task => {
             task.level = Math.max(0, (task.level ?? 0) - 1);
           });
           movedGroup[0].parentId = newParentId;
 
+          // 新しい親の後に挿入する位置を見つける
           if (newParentId === null) {
             const oldParentIndex = newTasks.findIndex(t => t.id === parentTask?.id);
             if (oldParentIndex !== -1) {
@@ -482,6 +577,7 @@ export const YearlyTaskCreatorPage = ({ onBack }: YearlyTaskCreatorPageProps) =>
             }
           }
 
+          // displayOrderを更新
           return newTasks.map((task, index) => ({
             ...task,
             displayOrder: index + 1,
@@ -505,6 +601,7 @@ export const YearlyTaskCreatorPage = ({ onBack }: YearlyTaskCreatorPageProps) =>
         const targetLevel = newTasks[targetIndex].level ?? 0;
         const levelDiff = (targetLevel + 1) - draggedLevel;
 
+        // 子孫タスクの数を計算
         let descendantCount = 0;
         for (let i = draggedIndex + 1; i < newTasks.length; i++) {
           if ((newTasks[i].level ?? 0) > draggedLevel) {
@@ -514,16 +611,20 @@ export const YearlyTaskCreatorPage = ({ onBack }: YearlyTaskCreatorPageProps) =>
           }
         }
 
+        // 移動するグループを抽出
         const movedGroup = newTasks.splice(draggedIndex, 1 + descendantCount);
 
+        // レベルを更新
         movedGroup.forEach(task => {
           task.level = (task.level ?? 0) + levelDiff;
         });
         movedGroup[0].parentId = currentNestTarget;
 
+        // 新しいターゲットインデックスを再計算
         const newTargetIndex = newTasks.findIndex(t => t.id === currentNestTarget);
         if (newTargetIndex === -1) return prevTasks;
 
+        // ターゲットの子孫の後ろに挿入
         let insertIndex = newTargetIndex + 1;
         for (let i = newTargetIndex + 1; i < newTasks.length; i++) {
           if ((newTasks[i].level ?? 0) <= targetLevel) {
@@ -534,6 +635,7 @@ export const YearlyTaskCreatorPage = ({ onBack }: YearlyTaskCreatorPageProps) =>
 
         newTasks.splice(insertIndex, 0, ...movedGroup);
 
+        // displayOrderを更新
         return newTasks.map((task, index) => ({
           ...task,
           displayOrder: index + 1,
@@ -563,6 +665,7 @@ export const YearlyTaskCreatorPage = ({ onBack }: YearlyTaskCreatorPageProps) =>
       const movedGroup = newTasks.splice(draggedIndex, groupSize);
       newTasks.push(...movedGroup);
 
+      // displayOrderを更新
       const reorderedTasks = newTasks.map((task, index) => ({
         ...task,
         displayOrder: index + 1,
@@ -592,6 +695,7 @@ export const YearlyTaskCreatorPage = ({ onBack }: YearlyTaskCreatorPageProps) =>
     const newTasks = [...tasks];
     const movedGroup = newTasks.splice(draggedIndex, groupSize);
 
+    // ターゲットの新しいインデックスを計算（削除後にずれる可能性）
     const newTargetIndex = newTasks.findIndex(t => t.id === effectiveTargetId);
     if (newTargetIndex === -1) {
       setDraggedTaskId(null);
@@ -600,6 +704,7 @@ export const YearlyTaskCreatorPage = ({ onBack }: YearlyTaskCreatorPageProps) =>
 
     newTasks.splice(newTargetIndex, 0, ...movedGroup);
 
+    // displayOrderを更新
     const reorderedTasks = newTasks.map((task, index) => ({
       ...task,
       displayOrder: index + 1,
@@ -618,26 +723,24 @@ export const YearlyTaskCreatorPage = ({ onBack }: YearlyTaskCreatorPageProps) =>
   };
 
   const handleExportCSV = () => {
-    // CSVヘッダーとデータを作成
-    const headers = ['タスク名', '実施月', '開始日', '終了日'];
+    const headers = ['タスク名', '実施年', '実施月', '開始日', '終了日'];
     const rows = tasks.map(task => [
       task.name,
-      task.implementationMonth !== null ? String(task.implementationMonth) : '',
+      String(task.implementationYear),
+      String(task.implementationMonth),
       task.startDay !== null ? String(task.startDay) : '',
       task.endDay !== null ? String(task.endDay) : ''
     ]);
 
-    // CSV文字列を作成（BOM付きUTF-8）
     const csvContent = '\uFEFF' + [headers, ...rows]
       .map(row => row.map(cell => `"${cell.replace(/"/g, '""')}"`).join(','))
       .join('\n');
 
-    // ダウンロード
     const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
     const url = URL.createObjectURL(blob);
     const link = document.createElement('a');
     link.href = url;
-    link.download = '年次タスク.csv';
+    link.download = 'スポットタスク.csv';
     link.click();
     URL.revokeObjectURL(url);
   };
@@ -657,18 +760,15 @@ export const YearlyTaskCreatorPage = ({ onBack }: YearlyTaskCreatorPageProps) =>
           return;
         }
 
-        // ヘッダー行を検証（月次タスクのCSVでないか確認）
         const headerLine = lines[0];
-        if (!headerLine.includes('実施月')) {
-          alert('このファイルは月次タスク用のCSVです。\n年次タスク作成画面では年次タスク用のCSVをインポートしてください。');
+        if (!headerLine.includes('実施年')) {
+          alert('このファイルはスポットタスク用のCSVではありません。');
           return;
         }
 
-        // ヘッダー行をスキップしてデータを読み込む
-        const newTasks: YearlyTask[] = [];
+        const newTasks: LocalSpotTask[] = [];
         for (let i = 1; i < lines.length; i++) {
           const line = lines[i];
-          // CSVパース（ダブルクォートを考慮）
           const matches = line.match(/("([^"]*(?:""[^"]*)*)"|[^,]*)(,|$)/g);
           if (!matches) continue;
 
@@ -681,15 +781,17 @@ export const YearlyTaskCreatorPage = ({ onBack }: YearlyTaskCreatorPageProps) =>
           });
 
           const name = cells[0] || '';
-          const implementationMonth = cells[1] ? parseInt(cells[1], 10) : null;
-          const startDay = cells[2] ? parseInt(cells[2], 10) : null;
-          const endDay = cells[3] ? parseInt(cells[3], 10) : null;
+          const implementationYear = cells[1] ? parseInt(cells[1], 10) : currentYear;
+          const implementationMonth = cells[2] ? parseInt(cells[2], 10) : 1;
+          const startDay = cells[3] ? parseInt(cells[3], 10) : null;
+          const endDay = cells[4] ? parseInt(cells[4], 10) : null;
 
           newTasks.push({
             id: crypto.randomUUID(),
             name,
             displayOrder: newTasks.length + 1,
-            implementationMonth: implementationMonth && !isNaN(implementationMonth) && implementationMonth >= 1 && implementationMonth <= 12 ? implementationMonth : null,
+            implementationYear: implementationYear && !isNaN(implementationYear) ? implementationYear : currentYear,
+            implementationMonth: implementationMonth && !isNaN(implementationMonth) && implementationMonth >= 1 && implementationMonth <= 12 ? implementationMonth : 1,
             startDay: startDay && !isNaN(startDay) ? startDay : null,
             endDay: endDay && !isNaN(endDay) ? endDay : null,
           });
@@ -709,8 +811,6 @@ export const YearlyTaskCreatorPage = ({ onBack }: YearlyTaskCreatorPageProps) =>
       }
     };
     reader.readAsText(file);
-
-    // inputをリセット（同じファイルを再選択可能にする）
     event.target.value = '';
   };
 
@@ -735,7 +835,7 @@ export const YearlyTaskCreatorPage = ({ onBack }: YearlyTaskCreatorPageProps) =>
                 ← 戻る
               </button>
               <h1 className="text-2xl font-bold text-gray-900">
-                年次タスク作成
+                スポットタスク一覧
               </h1>
             </div>
             <div className="flex items-center gap-4">
@@ -778,7 +878,7 @@ export const YearlyTaskCreatorPage = ({ onBack }: YearlyTaskCreatorPageProps) =>
               タスク削除 ({checkedTasks.size})
             </button>
             <button
-              onClick={handleSortByImplementationMonth}
+              onClick={handleSortByYearMonth}
               className="px-4 py-2 bg-gray-600 text-white rounded hover:bg-gray-700"
             >
               ソート
@@ -816,7 +916,10 @@ export const YearlyTaskCreatorPage = ({ onBack }: YearlyTaskCreatorPageProps) =>
                       <span>タスク</span>
                     </div>
                   </th>
-                  <th className="border border-gray-300 px-2 py-1 bg-gray-50 sticky left-[120px] z-10 w-[60px] min-w-[60px]" style={{ writingMode: 'horizontal-tb', whiteSpace: 'nowrap' }}>
+                  <th className="border border-gray-300 px-2 py-1 bg-gray-50 sticky left-[120px] z-10 w-[70px] min-w-[70px]">
+                    実施年
+                  </th>
+                  <th className="border border-gray-300 px-2 py-1 bg-gray-50 sticky left-[190px] z-10 w-[60px] min-w-[60px]">
                     実施月
                   </th>
                   {days.map((day) => (
@@ -907,7 +1010,38 @@ export const YearlyTaskCreatorPage = ({ onBack }: YearlyTaskCreatorPageProps) =>
                           )}
                         </div>
                       </td>
-                      <td className="border border-gray-300 px-2 py-1 text-center sticky left-[120px] bg-white z-10 w-[60px] min-w-[60px]">
+                      <td className="border border-gray-300 px-2 py-1 text-center sticky left-[120px] bg-white z-10 w-[70px] min-w-[70px]">
+                        {editingYearId === task.id ? (
+                          <input
+                            type="number"
+                            min="2000"
+                            max="2100"
+                            value={editingYearValue}
+                            onChange={(e) => setEditingYearValue(e.target.value)}
+                            onBlur={() => handleSaveYear(task.id)}
+                            onKeyDown={(e) => {
+                              if (e.key === 'Enter') {
+                                e.preventDefault();
+                                e.stopPropagation();
+                                handleSaveYear(task.id);
+                              } else if (e.key === 'Escape') {
+                                e.preventDefault();
+                                handleCancelEditYear();
+                              }
+                            }}
+                            autoFocus
+                            className="w-full px-1 py-0 border border-blue-500 rounded focus:outline-none focus:ring-1 focus:ring-blue-500 text-center"
+                          />
+                        ) : (
+                          <div
+                            onClick={() => handleStartEditYear(task.id, task.implementationYear)}
+                            className="cursor-text min-h-[20px]"
+                          >
+                            {task.implementationYear}年
+                          </div>
+                        )}
+                      </td>
+                      <td className="border border-gray-300 px-2 py-1 text-center sticky left-[190px] bg-white z-10 w-[60px] min-w-[60px]">
                         {editingMonthId === task.id ? (
                           <input
                             type="number"
@@ -918,8 +1052,11 @@ export const YearlyTaskCreatorPage = ({ onBack }: YearlyTaskCreatorPageProps) =>
                             onBlur={() => handleSaveMonth(task.id)}
                             onKeyDown={(e) => {
                               if (e.key === 'Enter') {
+                                e.preventDefault();
+                                e.stopPropagation();
                                 handleSaveMonth(task.id);
                               } else if (e.key === 'Escape') {
+                                e.preventDefault();
                                 handleCancelEditMonth();
                               }
                             }}
@@ -931,15 +1068,13 @@ export const YearlyTaskCreatorPage = ({ onBack }: YearlyTaskCreatorPageProps) =>
                             onClick={() => handleStartEditMonth(task.id, task.implementationMonth)}
                             className="cursor-text min-h-[20px]"
                           >
-                            {task.implementationMonth !== null ? `${task.implementationMonth}月` : <span className="text-gray-400">-</span>}
+                            {task.implementationMonth}月
                           </div>
                         )}
                       </td>
                       {days.map((day) => {
                         const inRange = isDayInRange(task, day);
                         const isStartDay = taskStartDay === day;
-
-                        // プレビュー範囲の判定（開始日選択後、マウスオーバー中）
                         const isInPreviewRange =
                           taskStartDay !== null &&
                           taskStartDay !== undefined &&
@@ -974,7 +1109,7 @@ export const YearlyTaskCreatorPage = ({ onBack }: YearlyTaskCreatorPageProps) =>
                 {tasks.length === 0 && (
                   <tr>
                     <td
-                      colSpan={days.length + 2}
+                      colSpan={days.length + 3}
                       className="border border-gray-300 px-4 py-8 text-center text-gray-500"
                     >
                       タスクがありません。「タスク追加」ボタンから追加してください。

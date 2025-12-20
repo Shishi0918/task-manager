@@ -11,6 +11,7 @@ const createTaskSchema = z.object({
   displayOrder: z.number().int().positive(),
   startDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
   endDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
+  parentId: z.string().uuid().nullable().optional(),
 });
 
 const updateTaskSchema = z.object({
@@ -20,6 +21,7 @@ const updateTaskSchema = z.object({
   endDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).nullable().optional(),
   isActive: z.boolean().optional(),
   isCompleted: z.boolean().optional(),
+  parentId: z.string().uuid().nullable().optional(),
 });
 
 export const getTasks = async (req: Request, res: Response): Promise<void> => {
@@ -34,16 +36,32 @@ export const getTasks = async (req: Request, res: Response): Promise<void> => {
     const yearNum = parseInt(year as string);
     const monthNum = parseInt(month as string);
 
+    // 全タスクを取得（親子関係を含む）
     const tasks = await prisma.task.findMany({
       where: {
         isActive: true,
         year: yearNum,
         month: monthNum,
       },
+      include: {
+        children: {
+          where: { isActive: true },
+          orderBy: { displayOrder: 'asc' },
+          include: {
+            children: {
+              where: { isActive: true },
+              orderBy: { displayOrder: 'asc' },
+            },
+          },
+        },
+      },
       orderBy: { displayOrder: 'asc' },
     });
 
-    res.json({ tasks });
+    // ルートレベルのタスクのみを返す（parentIdがnull）
+    const rootTasks = tasks.filter(task => task.parentId === null);
+
+    res.json({ tasks: rootTasks });
   } catch (error) {
     console.error('Get tasks error:', error);
     res.status(500).json({ error: 'Internal server error' });
@@ -55,7 +73,7 @@ export const createTask = async (
   res: Response
 ): Promise<void> => {
   try {
-    const { name, year, month, displayOrder, startDate, endDate } = createTaskSchema.parse(req.body);
+    const { name, year, month, displayOrder, startDate, endDate, parentId } = createTaskSchema.parse(req.body);
 
     const task = await prisma.task.create({
       data: {
@@ -65,6 +83,10 @@ export const createTask = async (
         displayOrder,
         startDate: startDate ? new Date(startDate) : null,
         endDate: endDate ? new Date(endDate) : null,
+        parentId: parentId || null,
+      },
+      include: {
+        children: true,
       },
     });
 
@@ -85,7 +107,23 @@ export const updateTask = async (
 ): Promise<void> => {
   try {
     const { id } = req.params;
-    const { name, displayOrder, startDate, endDate, isActive, isCompleted } = updateTaskSchema.parse(req.body);
+    const { name, displayOrder, startDate, endDate, isActive, isCompleted, parentId } = updateTaskSchema.parse(req.body);
+
+    // parentIdが指定されている場合、循環参照をチェック
+    if (parentId !== undefined && parentId !== null) {
+      // 自分自身を親にできない
+      if (parentId === id) {
+        res.status(400).json({ error: 'A task cannot be its own parent' });
+        return;
+      }
+
+      // 自分の子孫を親にできない（循環参照防止）
+      const isDescendant = await checkIsDescendant(id, parentId);
+      if (isDescendant) {
+        res.status(400).json({ error: 'Cannot set a descendant as parent (circular reference)' });
+        return;
+      }
+    }
 
     const task = await prisma.task.update({
       where: { id },
@@ -96,6 +134,13 @@ export const updateTask = async (
         ...(endDate !== undefined && { endDate: endDate ? new Date(endDate) : null }),
         ...(isActive !== undefined && { isActive }),
         ...(isCompleted !== undefined && { isCompleted }),
+        ...(parentId !== undefined && { parentId: parentId }),
+      },
+      include: {
+        children: {
+          where: { isActive: true },
+          orderBy: { displayOrder: 'asc' },
+        },
       },
     });
 
@@ -109,6 +154,20 @@ export const updateTask = async (
     res.status(500).json({ error: 'Internal server error' });
   }
 };
+
+// 循環参照チェック用のヘルパー関数
+async function checkIsDescendant(taskId: string, potentialParentId: string): Promise<boolean> {
+  const task = await prisma.task.findUnique({
+    where: { id: potentialParentId },
+    select: { parentId: true },
+  });
+
+  if (!task) return false;
+  if (task.parentId === taskId) return true;
+  if (task.parentId === null) return false;
+
+  return checkIsDescendant(taskId, task.parentId);
+}
 
 export const deleteTask = async (
   req: Request,

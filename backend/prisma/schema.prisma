@@ -34,6 +34,7 @@ model User {
 
   completions        TaskCompletion[]
   templates          TaskTemplate[]
+  spotTasks          SpotTask[]
 
   @@map("users")
 }
@@ -102,8 +103,12 @@ model Task {
   endDate      DateTime?        @db.Date @map("end_date")
   isActive     Boolean          @default(true) @map("is_active")
   isCompleted  Boolean          @default(false) @map("is_completed")
+  parentId     String?          @map("parent_id")
   createdAt    DateTime         @default(now()) @map("created_at")
   updatedAt    DateTime         @updatedAt @map("updated_at")
+
+  parent       Task?            @relation("TaskHierarchy", fields: [parentId], references: [id], onDelete: SetNull)
+  children     Task[]           @relation("TaskHierarchy")
   completions  TaskCompletion[]
 
   @@map("tasks")
@@ -141,4 +146,24 @@ model TaskTemplate {
 
   @@unique([userId, templateName, taskName])
   @@map("task_templates")
+}
+
+model SpotTask {
+  id                  String   @id @default(uuid())
+  userId              String   @map("user_id")
+  name                String
+  displayOrder        Int      @map("display_order")
+  implementationYear  Int      @map("implementation_year")
+  implementationMonth Int      @map("implementation_month")
+  startDay            Int?     @map("start_day")
+  endDay              Int?     @map("end_day")
+  parentId            String?  @map("parent_id")
+  createdAt           DateTime @default(now()) @map("created_at")
+  updatedAt           DateTime @updatedAt @map("updated_at")
+
+  user     User       @relation(fields: [userId], references: [id], onDelete: Cascade)
+  parent   SpotTask?  @relation("SpotTaskHierarchy", fields: [parentId], references: [id], onDelete: SetNull)
+  children SpotTask[] @relation("SpotTaskHierarchy")
+
+  @@map("spot_tasks")
 }

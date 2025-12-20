@@ -1,16 +1,32 @@
-import { useState, useEffect } from 'react';
-import { completionApi, taskApi } from '../services/api';
+import { useState, useEffect, useRef } from 'react';
+import { completionApi, taskApi, spotTaskApi } from '../services/api';
 import type { TaskWithCompletions, Stats } from '../types';
 import { TaskModal } from '../components/TaskModal';
 import { AccountMenu } from '../components/AccountMenu';
 
+// 階層タスクをフラット化する関数
+const flattenTasks = (
+  tasks: TaskWithCompletions[],
+  level: number = 0
+): TaskWithCompletions[] => {
+  const result: TaskWithCompletions[] = [];
+  for (const task of tasks) {
+    result.push({ ...task, level });
+    if (task.children && task.children.length > 0) {
+      result.push(...flattenTasks(task.children, level + 1));
+    }
+  }
+  return result;
+};
+
 interface CalendarPageProps {
   onNavigateToTemplateCreator: () => void;
   onNavigateToYearlyTaskCreator: () => void;
+  onNavigateToSpotTaskCreator: () => void;
   onNavigateToOrganization?: () => void;
 }
 
-export const CalendarPage = ({ onNavigateToTemplateCreator, onNavigateToYearlyTaskCreator, onNavigateToOrganization }: CalendarPageProps) => {
+export const CalendarPage = ({ onNavigateToTemplateCreator, onNavigateToYearlyTaskCreator, onNavigateToSpotTaskCreator, onNavigateToOrganization }: CalendarPageProps) => {
   const [year, setYear] = useState(new Date().getFullYear());
   const [month, setMonth] = useState(new Date().getMonth() + 1);
   const [tasks, setTasks] = useState<TaskWithCompletions[]>([]);
@@ -28,8 +44,13 @@ export const CalendarPage = ({ onNavigateToTemplateCreator, onNavigateToYearlyTa
   const [editingTaskId, setEditingTaskId] = useState<string | null>(null);
   const [editingTaskName, setEditingTaskName] = useState('');
   const [isComposing, setIsComposing] = useState(false);
+  const [lastSavedTaskId, setLastSavedTaskId] = useState<string | null>(null);
   const [draggedTaskId, setDraggedTaskId] = useState<string | null>(null);
   const [dragOverTaskId, setDragOverTaskId] = useState<string | null>(null);
+  const [dragOverBottom, setDragOverBottom] = useState(false); // 最後の行の下にドロップする場合
+  const [dragMode, setDragMode] = useState<'reorder' | 'nest' | 'unnest'>('reorder'); // ドラッグモード
+  const [nestTargetTaskId, setNestTargetTaskId] = useState<string | null>(null); // 子にする親タスク
+  const tableRef = useRef<HTMLTableElement>(null);
 
   const daysInMonth = new Date(year, month, 0).getDate();
   const days = Array.from({ length: daysInMonth }, (_, i) => i + 1);
@@ -42,7 +63,11 @@ export const CalendarPage = ({ onNavigateToTemplateCreator, onNavigateToYearlyTa
         completionApi.getCompletions(year, month),
         completionApi.getStats(year, month),
       ]);
-      setTasks(completionsData.tasks);
+      console.log('🔍 Raw API response:', JSON.stringify(completionsData.tasks, null, 2));
+      // 階層タスクをフラット化して表示用に変換
+      const flattenedTasks = flattenTasks(completionsData.tasks);
+      console.log('🔍 Flattened tasks:', flattenedTasks.map(t => ({ id: t.id, name: t.name, level: t.level, startDate: t.startDate, endDate: t.endDate, parentId: t.parentId })));
+      setTasks(flattenedTasks);
       setStats(statsData);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'データの取得に失敗しました');
@@ -54,6 +79,37 @@ export const CalendarPage = ({ onNavigateToTemplateCreator, onNavigateToYearlyTa
   useEffect(() => {
     fetchData();
   }, [year, month]);
+
+  // Enterキーで次のタスクを編集するためのキーボードリスナー
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      // 編集中でなく、最後に保存したタスクがある場合
+      if (e.key === 'Enter' && !editingTaskId && lastSavedTaskId) {
+        e.preventDefault();
+
+        // 最後に保存したタスクの次のタスクを見つける
+        const lastSavedIndex = tasks.findIndex(t => t.id === lastSavedTaskId);
+        if (lastSavedIndex !== -1 && lastSavedIndex < tasks.length - 1) {
+          // 完了済みタスクはスキップして次の未完了タスクを探す
+          let nextIndex = lastSavedIndex + 1;
+          while (nextIndex < tasks.length && tasks[nextIndex].isCompleted) {
+            nextIndex++;
+          }
+          if (nextIndex < tasks.length) {
+            const targetTask = tasks[nextIndex];
+            setEditingTaskId(targetTask.id);
+            setEditingTaskName(targetTask.name);
+            setLastSavedTaskId(null);
+          }
+        } else {
+          setLastSavedTaskId(null);
+        }
+      }
+    };
+
+    document.addEventListener('keydown', handleKeyDown);
+    return () => document.removeEventListener('keydown', handleKeyDown);
+  }, [editingTaskId, lastSavedTaskId, tasks]);
 
   const handleAddTask = async () => {
     try {
@@ -146,18 +202,28 @@ export const CalendarPage = ({ onNavigateToTemplateCreator, onNavigateToYearlyTa
   const handleStartEditTaskName = (taskId: string, currentName: string) => {
     setEditingTaskId(taskId);
     setEditingTaskName(currentName);
+    setLastSavedTaskId(null);
   };
 
   const handleSaveTaskName = async (taskId: string) => {
     if (!editingTaskName.trim()) {
       setEditingTaskId(null);
+      setLastSavedTaskId(null);
       return;
     }
 
     try {
       await taskApi.updateTask(taskId, { name: editingTaskName.trim() });
+
+      // ローカル状態を直接更新（リロードなし）
+      setTasks(prevTasks =>
+        prevTasks.map(t =>
+          t.id === taskId ? { ...t, name: editingTaskName.trim() } : t
+        )
+      );
+
       setEditingTaskId(null);
-      await fetchData();
+      setLastSavedTaskId(taskId); // 次のEnterで下のタスクを編集するため
     } catch (err) {
       setError(err instanceof Error ? err.message : 'タスク名の更新に失敗しました');
     }
@@ -166,6 +232,7 @@ export const CalendarPage = ({ onNavigateToTemplateCreator, onNavigateToYearlyTa
   const handleCancelEditTaskName = () => {
     setEditingTaskId(null);
     setEditingTaskName('');
+    setLastSavedTaskId(null);
   };
 
   const handleCellClick = async (taskId: string, day: number) => {
@@ -326,45 +393,424 @@ export const CalendarPage = ({ onNavigateToTemplateCreator, onNavigateToYearlyTa
     e.dataTransfer.setData('text/plain', taskId);
   };
 
-  const handleDragOver = (e: React.DragEvent, taskId: string) => {
+  const handleDragOver = (e: React.DragEvent) => {
     e.preventDefault();
-    if (draggedTaskId && draggedTaskId !== taskId) {
-      setDragOverTaskId(taskId);
+    if (!draggedTaskId) return;
+
+    // マウス位置から最も近い行を特定
+    const target = e.target as HTMLElement;
+    const tr = target.closest('tr');
+    if (!tr) return;
+
+    const rect = tr.getBoundingClientRect();
+    const mouseY = e.clientY;
+    const mouseX = e.clientX;
+    const taskId = tr.getAttribute('data-task-id');
+
+    // テーブルの左端を基準に階層操作を判定
+    const tableRect = tableRef.current?.getBoundingClientRect();
+    const leftEdge = tableRect?.left ?? 0;
+
+    // ドラッグ中のタスクを取得
+    const draggedTask = tasks.find(t => t.id === draggedTaskId);
+    const hoveredTask = taskId ? tasks.find(t => t.id === taskId) : null;
+
+    // 左端に近い場合（50px以内）は階層解除モード
+    if (mouseX < leftEdge + 50 && draggedTask && (draggedTask.level ?? 0) > 0) {
+      setDragMode('unnest');
+      setDragOverTaskId(null);
+      setNestTargetTaskId(null);
+      setDragOverBottom(false);
+      return;
+    }
+
+    // タスク名セル上の中央部分にドラッグした場合のみ階層化モード
+    // 行の上下30%はリオーダー用、中央40%がネスト用
+    const rowRelativeY = (mouseY - rect.top) / rect.height;
+    const isInMiddleZone = rowRelativeY > 0.3 && rowRelativeY < 0.7;
+
+    const taskNameCell = tr.querySelector('td:nth-child(1)');
+    if (taskNameCell && taskId && taskId !== draggedTaskId && isInMiddleZone) {
+      const cellRect = taskNameCell.getBoundingClientRect();
+      // セルの右側60%のみをネスト対象エリアとする（左側はドラッグハンドル用）
+      const nestAreaLeft = cellRect.left + cellRect.width * 0.4;
+      const isOverNestArea = mouseX >= nestAreaLeft && mouseX <= cellRect.right;
+
+      if (isOverNestArea && hoveredTask) {
+        // 階層レベルのチェック（最大2階層まで）
+        const targetLevel = hoveredTask.level ?? 0;
+
+        // ターゲットが既に2階層目の場合、または自分の子孫にはドロップできない
+        if (targetLevel < 2 && !isDescendantOf(draggedTaskId, taskId)) {
+          setDragMode('nest');
+          setNestTargetTaskId(taskId);
+          setDragOverTaskId(null);
+          setDragOverBottom(false);
+          return;
+        }
+      }
+    }
+
+    // 通常の並び替えモード
+    setDragMode('reorder');
+    setNestTargetTaskId(null);
+
+    // ドラッグ方向を判定して閾値を調整
+    const draggedIndex = tasks.findIndex(t => t.id === draggedTaskId);
+    const hoveredIndex = taskId ? tasks.findIndex(t => t.id === taskId) : -1;
+    const isDraggingUp = draggedIndex > hoveredIndex;
+
+    // 下から上にドラッグする時は70%、上から下は30%を閾値とする
+    const thresholdRatio = isDraggingUp ? 0.7 : 0.3;
+    const threshold = rect.top + rect.height * thresholdRatio;
+
+    let targetTaskId: string | null = null;
+    let isBottom = false;
+
+    if (taskId) {
+      const currentIndex = tasks.findIndex(t => t.id === taskId);
+      if (mouseY < threshold) {
+        // 上部 - この行の上に挿入
+        targetTaskId = taskId;
+      } else {
+        // 下部 - 次の行の上に挿入（= 次の行をターゲットに）
+        if (currentIndex < tasks.length - 1) {
+          targetTaskId = tasks[currentIndex + 1].id;
+        } else {
+          // 最後の行の下部 - 最後に移動
+          isBottom = true;
+        }
+      }
+    }
+
+    // 最後の行の下へのドロップを処理
+    if (isBottom) {
+      // ドラッグ中のアイテムが最後の行でない場合のみ表示
+      if (draggedIndex !== tasks.length - 1) {
+        setDragOverTaskId(null);
+        setDragOverBottom(true);
+        return;
+      }
+    }
+
+    setDragOverBottom(false);
+
+    if (targetTaskId && targetTaskId !== draggedTaskId) {
+      // ドラッグ中のアイテムのすぐ下には線を表示しない
+      const targetIndex = tasks.findIndex(t => t.id === targetTaskId);
+      if (draggedIndex !== -1 && targetIndex === draggedIndex + 1) {
+        setDragOverTaskId(null);
+        return;
+      }
+      setDragOverTaskId(targetTaskId);
+    } else {
+      setDragOverTaskId(null);
     }
   };
 
-  const handleDragLeave = () => {
-    setDragOverTaskId(null);
+  // タスクが別のタスクの子孫かどうかをチェック（フラット化された配列用）
+  const isDescendantOf = (taskId: string, potentialAncestorId: string): boolean => {
+    // potentialAncestorIdの子孫にtaskIdがあるかチェック
+    const ancestorIndex = tasks.findIndex(t => t.id === potentialAncestorId);
+    if (ancestorIndex === -1) return false;
+
+    const ancestorLevel = tasks[ancestorIndex].level ?? 0;
+
+    // ancestor以降のタスクをチェックし、ancestorより深い階層のタスクを探す
+    for (let i = ancestorIndex + 1; i < tasks.length; i++) {
+      const currentLevel = tasks[i].level ?? 0;
+      // ancestorと同じかそれより浅い階層に達したら終了
+      if (currentLevel <= ancestorLevel) break;
+      // taskIdが見つかったら子孫である
+      if (tasks[i].id === taskId) return true;
+    }
+    return false;
   };
 
-  const handleDrop = async (e: React.DragEvent, targetTaskId: string) => {
-    e.preventDefault();
-    setDragOverTaskId(null);
+  const handleDragLeave = (e: React.DragEvent) => {
+    // tbody外に出た場合のみクリア
+    const relatedTarget = e.relatedTarget as HTMLElement;
+    if (!relatedTarget || !relatedTarget.closest('tbody')) {
+      setDragOverTaskId(null);
+      setDragOverBottom(false);
+      setDragMode('reorder');
+      setNestTargetTaskId(null);
+    }
+  };
 
-    if (!draggedTaskId || draggedTaskId === targetTaskId) {
+  const handleDrop = async (e: React.DragEvent, targetTaskId?: string) => {
+    e.preventDefault();
+
+    const currentDragMode = dragMode;
+    const currentNestTarget = nestTargetTaskId;
+
+    // 最後の行の下にドロップする場合
+    const isDropToBottom = dragOverBottom;
+    // 青い線が表示されている行をドロップ先として使用
+    const effectiveTargetId = dragOverTaskId || targetTaskId;
+
+    // ステートをリセット
+    setDragOverTaskId(null);
+    setDragOverBottom(false);
+    setDragMode('reorder');
+    setNestTargetTaskId(null);
+
+    if (!draggedTaskId) {
+      setDraggedTaskId(null);
+      return;
+    }
+
+    // 階層解除モード
+    if (currentDragMode === 'unnest') {
+      try {
+        const draggedTask = tasks.find(t => t.id === draggedTaskId);
+        if (draggedTask && draggedTask.parentId) {
+          // 親タスクの親を取得（1階層上）
+          const parentTask = tasks.find(t => t.id === draggedTask.parentId);
+          const newParentId = parentTask?.parentId ?? null;
+
+          await taskApi.updateTask(draggedTaskId, { parentId: newParentId });
+
+          // ローカル状態を更新（リロードなし）
+          setTasks(prevTasks => {
+            const newTasks = [...prevTasks];
+            const draggedIndex = newTasks.findIndex(t => t.id === draggedTaskId);
+            if (draggedIndex === -1) return prevTasks;
+
+            const draggedLevel = newTasks[draggedIndex].level ?? 0;
+
+            // 子孫タスクも含めて取得
+            let descendantCount = 0;
+            for (let i = draggedIndex + 1; i < newTasks.length; i++) {
+              if ((newTasks[i].level ?? 0) > draggedLevel) {
+                descendantCount++;
+              } else {
+                break;
+              }
+            }
+
+            // 移動するグループを抽出
+            const movedGroup = newTasks.splice(draggedIndex, 1 + descendantCount);
+
+            // レベルを1つ下げる
+            movedGroup.forEach(task => {
+              task.level = Math.max(0, (task.level ?? 0) - 1);
+            });
+            movedGroup[0].parentId = newParentId;
+
+            // 新しい親の後に挿入する位置を見つける
+            if (newParentId === null) {
+              // ルートレベルに戻す場合、元の親の位置に挿入
+              const oldParentIndex = newTasks.findIndex(t => t.id === parentTask?.id);
+              if (oldParentIndex !== -1) {
+                // 元の親とその子孫の後ろに挿入
+                const oldParentLevel = newTasks[oldParentIndex].level ?? 0;
+                let insertIndex = oldParentIndex + 1;
+                for (let i = oldParentIndex + 1; i < newTasks.length; i++) {
+                  if ((newTasks[i].level ?? 0) <= oldParentLevel) {
+                    break;
+                  }
+                  insertIndex = i + 1;
+                }
+                newTasks.splice(insertIndex, 0, ...movedGroup);
+              } else {
+                newTasks.push(...movedGroup);
+              }
+            } else {
+              // 新しい親の子孫の後ろに挿入
+              const newParentIndex = newTasks.findIndex(t => t.id === newParentId);
+              if (newParentIndex !== -1) {
+                const newParentLevel = newTasks[newParentIndex].level ?? 0;
+                let insertIndex = newParentIndex + 1;
+                for (let i = newParentIndex + 1; i < newTasks.length; i++) {
+                  if ((newTasks[i].level ?? 0) <= newParentLevel) {
+                    break;
+                  }
+                  insertIndex = i + 1;
+                }
+                newTasks.splice(insertIndex, 0, ...movedGroup);
+              } else {
+                newTasks.push(...movedGroup);
+              }
+            }
+
+            return newTasks;
+          });
+        }
+      } catch (err) {
+        setError(err instanceof Error ? err.message : '階層の変更に失敗しました');
+      } finally {
+        setDraggedTaskId(null);
+      }
+      return;
+    }
+
+    // 階層化モード
+    if (currentDragMode === 'nest' && currentNestTarget) {
+      try {
+        await taskApi.updateTask(draggedTaskId, { parentId: currentNestTarget });
+
+        // ローカル状態を更新（リロードなし）
+        setTasks(prevTasks => {
+          const newTasks = [...prevTasks];
+          const draggedIndex = newTasks.findIndex(t => t.id === draggedTaskId);
+          const targetIndex = newTasks.findIndex(t => t.id === currentNestTarget);
+
+          if (draggedIndex === -1 || targetIndex === -1) return prevTasks;
+
+          const draggedLevel = newTasks[draggedIndex].level ?? 0;
+          const targetLevel = newTasks[targetIndex].level ?? 0;
+          const levelDiff = (targetLevel + 1) - draggedLevel;
+
+          // 子孫タスクも含めて取得
+          let descendantCount = 0;
+          for (let i = draggedIndex + 1; i < newTasks.length; i++) {
+            if ((newTasks[i].level ?? 0) > draggedLevel) {
+              descendantCount++;
+            } else {
+              break;
+            }
+          }
+
+          // 移動するグループを抽出
+          const movedGroup = newTasks.splice(draggedIndex, 1 + descendantCount);
+
+          // レベルを更新
+          movedGroup.forEach(task => {
+            task.level = (task.level ?? 0) + levelDiff;
+          });
+          movedGroup[0].parentId = currentNestTarget;
+
+          // 新しいターゲットインデックスを再計算（削除後にずれている可能性）
+          const newTargetIndex = newTasks.findIndex(t => t.id === currentNestTarget);
+          if (newTargetIndex === -1) return prevTasks;
+
+          // ターゲットの子孫の後ろに挿入
+          let insertIndex = newTargetIndex + 1;
+          for (let i = newTargetIndex + 1; i < newTasks.length; i++) {
+            if ((newTasks[i].level ?? 0) <= targetLevel) {
+              break;
+            }
+            insertIndex = i + 1;
+          }
+
+          newTasks.splice(insertIndex, 0, ...movedGroup);
+          return newTasks;
+        });
+      } catch (err) {
+        setError(err instanceof Error ? err.message : '階層の変更に失敗しました');
+      } finally {
+        setDraggedTaskId(null);
+      }
+      return;
+    }
+
+    // 子孫タスクを含めて取得するヘルパー
+    const getTaskWithDescendants = (taskIndex: number): number => {
+      const taskLevel = tasks[taskIndex].level ?? 0;
+      let count = 0;
+      for (let i = taskIndex + 1; i < tasks.length; i++) {
+        if ((tasks[i].level ?? 0) > taskLevel) {
+          count++;
+        } else {
+          break;
+        }
+      }
+      return count;
+    };
+
+    // 最後に移動する場合
+    if (isDropToBottom) {
+      try {
+        const draggedIndex = tasks.findIndex(t => t.id === draggedTaskId);
+        if (draggedIndex === -1) {
+          setDraggedTaskId(null);
+          return;
+        }
+
+        // 子孫タスクも含めて移動
+        const descendantCount = getTaskWithDescendants(draggedIndex);
+        const groupSize = 1 + descendantCount;
+
+        // 既に最後にいる場合は何もしない
+        if (draggedIndex + groupSize >= tasks.length) {
+          setDraggedTaskId(null);
+          return;
+        }
+
+        const newTasks = [...tasks];
+        const movedGroup = newTasks.splice(draggedIndex, groupSize);
+        newTasks.push(...movedGroup);
+
+        // displayOrderを更新（バックグラウンドで）
+        const updatePromises: Promise<any>[] = [];
+        for (let i = 0; i < newTasks.length; i++) {
+          if (newTasks[i].displayOrder !== i + 1) {
+            newTasks[i] = { ...newTasks[i], displayOrder: i + 1 };
+            updatePromises.push(taskApi.updateTask(newTasks[i].id, { displayOrder: i + 1 }));
+          }
+        }
+
+        // ローカル状態を即座に更新
+        setTasks(newTasks);
+
+        // APIは並列で実行
+        await Promise.all(updatePromises);
+      } catch (err) {
+        setError(err instanceof Error ? err.message : '順序の変更に失敗しました');
+      } finally {
+        setDraggedTaskId(null);
+      }
+      return;
+    }
+
+    if (!effectiveTargetId || draggedTaskId === effectiveTargetId) {
       setDraggedTaskId(null);
       return;
     }
 
     try {
       const draggedIndex = tasks.findIndex(t => t.id === draggedTaskId);
-      const targetIndex = tasks.findIndex(t => t.id === targetTaskId);
+      const targetIndex = tasks.findIndex(t => t.id === effectiveTargetId);
 
       if (draggedIndex === -1 || targetIndex === -1) return;
 
-      // タスクの新しい順序を計算
-      const newTasks = [...tasks];
-      const [draggedTask] = newTasks.splice(draggedIndex, 1);
-      newTasks.splice(targetIndex, 0, draggedTask);
+      // 子孫タスクも含めて移動
+      const descendantCount = getTaskWithDescendants(draggedIndex);
+      const groupSize = 1 + descendantCount;
 
-      // displayOrderを更新
+      // ターゲットがドラッグ中のグループ内にある場合は何もしない
+      if (targetIndex > draggedIndex && targetIndex <= draggedIndex + descendantCount) {
+        setDraggedTaskId(null);
+        return;
+      }
+
+      const newTasks = [...tasks];
+      const movedGroup = newTasks.splice(draggedIndex, groupSize);
+
+      // 上から下にドラッグする場合、削除後にインデックスが調整される
+      let insertIndex: number;
+      if (draggedIndex < targetIndex) {
+        insertIndex = targetIndex - groupSize;
+      } else {
+        insertIndex = targetIndex;
+      }
+      newTasks.splice(insertIndex, 0, ...movedGroup);
+
+      // displayOrderを更新（バックグラウンドで）
+      const updatePromises: Promise<any>[] = [];
       for (let i = 0; i < newTasks.length; i++) {
         if (newTasks[i].displayOrder !== i + 1) {
-          await taskApi.updateTask(newTasks[i].id, { displayOrder: i + 1 });
+          newTasks[i] = { ...newTasks[i], displayOrder: i + 1 };
+          updatePromises.push(taskApi.updateTask(newTasks[i].id, { displayOrder: i + 1 }));
         }
       }
 
-      await fetchData();
+      // ローカル状態を即座に更新
+      setTasks(newTasks);
+
+      // APIは並列で実行
+      await Promise.all(updatePromises);
     } catch (err) {
       setError(err instanceof Error ? err.message : '順序の変更に失敗しました');
     } finally {
@@ -375,6 +821,9 @@ export const CalendarPage = ({ onNavigateToTemplateCreator, onNavigateToYearlyTa
   const handleDragEnd = () => {
     setDraggedTaskId(null);
     setDragOverTaskId(null);
+    setDragOverBottom(false);
+    setDragMode('reorder');
+    setNestTargetTaskId(null);
   };
 
   const handleSortByStartDate = async () => {
@@ -491,14 +940,17 @@ export const CalendarPage = ({ onNavigateToTemplateCreator, onNavigateToYearlyTa
       // 現在の月に一致する年次タスクをフィルタリング
       const matchingYearlyTasks = yearlyTasks.filter((task) => task.implementationMonth === month);
 
-      const totalTaskCount = monthlyTemplateTasks.length + matchingYearlyTasks.length;
+      // APIからスポットタスクを取得（年月でフィルタリング）
+      const { spotTasks } = await spotTaskApi.getByYearMonth(year, month);
+
+      const totalTaskCount = monthlyTemplateTasks.length + matchingYearlyTasks.length + spotTasks.length;
 
       if (totalTaskCount === 0) {
-        alert('貼り付けるタスクがありません。先に「月次タスク作成」または「年次タスク作成」画面でタスクを作成してください。');
+        alert('貼り付けるタスクがありません。先に「月次タスク作成」「年次タスク作成」または「スポットタスク作成」画面でタスクを作成してください。');
         return;
       }
 
-      const message = `月次タスク（${monthlyTemplateTasks.length}件）+ 年次タスク（${matchingYearlyTasks.length}件）= 合計${totalTaskCount}件のタスクを追加しますか？`;
+      const message = `月次タスク（${monthlyTemplateTasks.length}件）+ 年次タスク（${matchingYearlyTasks.length}件）+ スポットタスク（${spotTasks.length}件）= 合計${totalTaskCount}件のタスクを追加しますか？`;
 
       if (!confirm(message)) {
         return;
@@ -564,7 +1016,32 @@ export const CalendarPage = ({ onNavigateToTemplateCreator, onNavigateToYearlyTa
         addedCount++;
       }
 
-      alert(`タスクを追加しました（月次: ${monthlyTemplateTasks.length}件、年次: ${matchingYearlyTasks.length}件、合計: ${addedCount}件）`);
+      // スポットタスクを月次タスクとして追加
+      for (const spotTask of spotTasks) {
+        let startDateStr: string | undefined = undefined;
+        let endDateStr: string | undefined = undefined;
+
+        if (spotTask.startDay !== null && spotTask.endDay !== null) {
+          // 月末日を超えないように調整
+          const adjustedStartDay = Math.min(spotTask.startDay, daysInMonth);
+          const adjustedEndDay = Math.min(spotTask.endDay, daysInMonth);
+
+          startDateStr = `${year}-${String(month).padStart(2, '0')}-${String(adjustedStartDay).padStart(2, '0')}`;
+          endDateStr = `${year}-${String(month).padStart(2, '0')}-${String(adjustedEndDay).padStart(2, '0')}`;
+        }
+
+        await taskApi.createTask(
+          spotTask.name,
+          year,
+          month,
+          maxDisplayOrder + addedCount + 1,
+          startDateStr,
+          endDateStr
+        );
+        addedCount++;
+      }
+
+      alert(`タスクを追加しました（月次: ${monthlyTemplateTasks.length}件、年次: ${matchingYearlyTasks.length}件、スポット: ${spotTasks.length}件、合計: ${addedCount}件）`);
       await fetchData();
     } catch (err) {
       setError(err instanceof Error ? err.message : 'タスクの貼り付けに失敗しました');
@@ -631,6 +1108,12 @@ export const CalendarPage = ({ onNavigateToTemplateCreator, onNavigateToYearlyTa
                 className="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700"
               >
                 📅 年次タスク作成
+              </button>
+              <button
+                onClick={onNavigateToSpotTaskCreator}
+                className="px-4 py-2 bg-orange-600 text-white rounded hover:bg-orange-700"
+              >
+                ⚡ スポットタスク作成
               </button>
             </div>
             <AccountMenu onNavigateToOrganization={onNavigateToOrganization} />
@@ -741,20 +1224,20 @@ export const CalendarPage = ({ onNavigateToTemplateCreator, onNavigateToYearlyTa
           </div>
 
           <div className="overflow-x-auto overflow-y-visible pb-4" style={{ scrollbarWidth: 'thin' }}>
-            <table className="min-w-full border-collapse">
+            <table ref={tableRef} className="min-w-full border-collapse">
               <thead>
                 <tr>
-                  <th className="border border-gray-300 px-1 py-1 bg-gray-50 sticky left-0 z-10 w-[32px] min-w-[32px]">
-                    <input
-                      type="checkbox"
-                      checked={tasks.length > 0 && checkedTasks.size === tasks.length}
-                      onChange={handleToggleAllTasks}
-                      className="w-4 h-4 cursor-pointer"
-                      title="全選択/全解除"
-                    />
-                  </th>
-                  <th className="border border-gray-300 px-2 py-1 bg-gray-50 sticky left-[32px] z-10 w-[80px] min-w-[80px]" style={{ writingMode: 'horizontal-tb', whiteSpace: 'nowrap' }}>
-                    タスク
+                  <th className="border border-gray-300 px-1 py-1 bg-gray-50 sticky left-0 z-10 w-[120px] min-w-[120px]">
+                    <div className="flex items-center gap-1">
+                      <input
+                        type="checkbox"
+                        checked={tasks.length > 0 && checkedTasks.size === tasks.length}
+                        onChange={handleToggleAllTasks}
+                        className="w-4 h-4 cursor-pointer"
+                        title="全選択/全解除"
+                      />
+                      <span>タスク</span>
+                    </div>
                   </th>
                   {days.map((day) => {
                     const date = new Date(year, month - 1, day);
@@ -776,8 +1259,12 @@ export const CalendarPage = ({ onNavigateToTemplateCreator, onNavigateToYearlyTa
                   })}
                 </tr>
               </thead>
-              <tbody>
-                {tasks.map((task) => {
+              <tbody
+                onDragOver={handleDragOver}
+                onDragLeave={handleDragLeave}
+                onDrop={(e) => handleDrop(e)}
+              >
+                {tasks.map((task, index) => {
                   const taskStartDay = selectedStartDays[task.id];
                   const taskHoverDay = hoverDays[task.id];
                   const isChecked = checkedTasks.has(task.id);
@@ -788,22 +1275,35 @@ export const CalendarPage = ({ onNavigateToTemplateCreator, onNavigateToYearlyTa
 
                   const isDragging = draggedTaskId === task.id;
                   const isDragOver = dragOverTaskId === task.id;
+                  const isLastRow = index === tasks.length - 1;
+                  const showBottomBorder = isLastRow && dragOverBottom;
+
+                  // 階層化のビジュアルフィードバック
+                  const isNestTarget = nestTargetTaskId === task.id && dragMode === 'nest';
+                  const taskLevel = task.level ?? 0;
+
+                  // 階層解除モードのビジュアルフィードバック
+                  const isUnnestMode = dragMode === 'unnest' && draggedTaskId === task.id;
 
                   return (
                     <tr
                       key={task.id}
-                      className={`${isCompletedTask ? 'opacity-60' : ''} ${isDragging ? 'opacity-50' : ''} ${isDragOver ? 'border-t-2 border-t-blue-500' : ''}`}
+                      data-task-id={task.id}
+                      className={`${isCompletedTask ? 'opacity-60' : ''} ${isDragging ? 'opacity-50' : ''} ${isDragOver ? 'border-t-2 border-t-blue-500' : ''} ${showBottomBorder ? 'border-b-2 border-b-blue-500' : ''} ${isNestTarget ? 'bg-green-100' : ''} ${isUnnestMode ? 'bg-yellow-100' : ''}`}
                       draggable={!isCompletedTask}
                       onDragStart={(e) => handleDragStart(e, task.id)}
-                      onDragOver={(e) => handleDragOver(e, task.id)}
-                      onDragLeave={handleDragLeave}
                       onDrop={(e) => handleDrop(e, task.id)}
                       onDragEnd={handleDragEnd}
                     >
-                      <td className={`border border-gray-300 px-1 py-1 text-center sticky left-0 ${rowBgClass} z-10 w-[32px] min-w-[32px]`}>
+                      <td
+                        className={`border border-gray-300 px-1 py-1 sticky left-0 ${isNestTarget ? 'bg-green-100' : isUnnestMode ? 'bg-yellow-100' : rowBgClass} z-10 w-[120px] min-w-[120px] ${textColorClass}`}
+                        style={{
+                          paddingLeft: `${4 + taskLevel * 20}px` // 階層に応じたインデント
+                        }}
+                      >
                         <div className="flex items-center gap-1">
                           {!isCompletedTask && (
-                            <span className="cursor-grab text-gray-400 hover:text-gray-600" title="ドラッグして並び替え">
+                            <span className="cursor-grab text-gray-400 hover:text-gray-600 flex-shrink-0" title="ドラッグして並び替え（タスク名にドロップで子タスク化、左端にドロップで階層解除）">
                               ⋮⋮
                             </span>
                           )}
@@ -811,37 +1311,37 @@ export const CalendarPage = ({ onNavigateToTemplateCreator, onNavigateToYearlyTa
                             type="checkbox"
                             checked={isChecked}
                             onChange={() => handleToggleTaskCheck(task.id)}
-                            className="w-4 h-4 cursor-pointer"
+                            className="w-4 h-4 cursor-pointer flex-shrink-0"
                           />
+                          {editingTaskId === task.id ? (
+                            <input
+                              type="text"
+                              value={editingTaskName}
+                              onChange={(e) => setEditingTaskName(e.target.value)}
+                              onCompositionStart={() => setIsComposing(true)}
+                              onCompositionEnd={() => setIsComposing(false)}
+                              onBlur={() => handleSaveTaskName(task.id)}
+                              onKeyDown={(e) => {
+                                if (e.key === 'Enter' && !isComposing) {
+                                  handleSaveTaskName(task.id);
+                                } else if (e.key === 'Escape') {
+                                  handleCancelEditTaskName();
+                                }
+                              }}
+                              autoFocus
+                              className="flex-1 min-w-0 px-1 py-0 border border-blue-500 rounded focus:outline-none focus:ring-1 focus:ring-blue-500"
+                            />
+                          ) : (
+                            <div
+                              onClick={() => handleStartEditTaskName(task.id, task.name)}
+                              className="cursor-text min-h-[20px] flex items-center flex-1 min-w-0 overflow-hidden"
+                            >
+                              <span className="truncate">
+                                {task.name || <span className="text-gray-400">タスク名</span>}
+                              </span>
+                            </div>
+                          )}
                         </div>
-                      </td>
-                      <td className={`border border-gray-300 px-2 py-1 font-medium sticky left-[32px] ${rowBgClass} z-10 w-[80px] min-w-[80px] ${textColorClass}`} style={{ writingMode: 'horizontal-tb', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                        {editingTaskId === task.id ? (
-                          <input
-                            type="text"
-                            value={editingTaskName}
-                            onChange={(e) => setEditingTaskName(e.target.value)}
-                            onCompositionStart={() => setIsComposing(true)}
-                            onCompositionEnd={() => setIsComposing(false)}
-                            onBlur={() => handleSaveTaskName(task.id)}
-                            onKeyDown={(e) => {
-                              if (e.key === 'Enter' && !isComposing) {
-                                handleSaveTaskName(task.id);
-                              } else if (e.key === 'Escape') {
-                                handleCancelEditTaskName();
-                              }
-                            }}
-                            autoFocus
-                            className="w-full px-1 py-0 border border-blue-500 rounded focus:outline-none focus:ring-1 focus:ring-blue-500"
-                          />
-                        ) : (
-                          <div
-                            onClick={() => handleStartEditTaskName(task.id, task.name)}
-                            className="cursor-text min-h-[20px]"
-                          >
-                            {task.name || <span className="text-gray-400">タスク名</span>}
-                          </div>
-                        )}
                       </td>
                       {days.map((day) => {
                         const inRange = isDateInRange(task, day);

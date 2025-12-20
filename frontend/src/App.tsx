@@ -5,12 +5,13 @@ import { LoginPage } from './pages/LoginPage';
 import { CalendarPage } from './pages/CalendarPage';
 import { MonthlyTemplateCreatorPage } from './pages/MonthlyTemplateCreatorPage';
 import { YearlyTaskCreatorPage } from './pages/YearlyTaskCreatorPage';
+import { SpotTaskCreatorPage } from './pages/SpotTaskCreatorPage';
 import { SubscriptionRequiredPage } from './pages/SubscriptionRequiredPage';
 import { OrganizationPage } from './pages/OrganizationPage';
 import { PlanSelectionPage } from './pages/PlanSelectionPage';
 import { TrialBanner } from './components/TrialBanner';
 
-type Page = 'calendar' | 'templateCreator' | 'yearlyTaskCreator' | 'organization' | 'planSelection';
+type Page = 'calendar' | 'templateCreator' | 'yearlyTaskCreator' | 'spotTaskCreator' | 'organization' | 'planSelection';
 
 function AppContent() {
   const { user, loading: authLoading } = useAuth();
@@ -96,12 +97,24 @@ function AppContent() {
     );
   }
 
+  if (currentPage === 'spotTaskCreator') {
+    return (
+      <>
+        <TrialBanner />
+        <SpotTaskCreatorPage
+          onBack={() => setCurrentPage('calendar')}
+        />
+      </>
+    );
+  }
+
   return (
     <>
       <TrialBanner />
       <CalendarPage
         onNavigateToTemplateCreator={() => setCurrentPage('templateCreator')}
         onNavigateToYearlyTaskCreator={() => setCurrentPage('yearlyTaskCreator')}
+        onNavigateToSpotTaskCreator={() => setCurrentPage('spotTaskCreator')}
         onNavigateToOrganization={() => setCurrentPage('organization')}
       />
     </>

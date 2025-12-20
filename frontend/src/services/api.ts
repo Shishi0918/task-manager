@@ -111,7 +111,7 @@ export const taskApi = {
 
   updateTask: async (
     id: string,
-    data: Partial<Pick<Task, 'name' | 'displayOrder' | 'startDate' | 'endDate' | 'isActive' | 'isCompleted'>>
+    data: Partial<Pick<Task, 'name' | 'displayOrder' | 'startDate' | 'endDate' | 'isActive' | 'isCompleted' | 'parentId'>>
   ): Promise<{ task: Task }> => {
     const response = await fetch(`${API_URL}/api/tasks/${id}`, {
       method: 'PUT',
@@ -398,5 +398,80 @@ export const organizationApi = {
       headers: getAuthHeaders(),
     });
     return handleResponse<{ message: string }>(response);
+  },
+};
+
+// SpotTask type
+export interface SpotTask {
+  id: string;
+  name: string;
+  displayOrder: number;
+  implementationYear: number;
+  implementationMonth: number;
+  startDay: number | null;
+  endDay: number | null;
+  parentId?: string | null;
+  children?: SpotTask[];
+  level?: number;
+}
+
+// SpotTask API
+export const spotTaskApi = {
+  getAll: async (): Promise<{ spotTasks: SpotTask[] }> => {
+    const response = await fetch(`${API_URL}/api/spot-tasks`, {
+      headers: getAuthHeaders(),
+    });
+    return handleResponse<{ spotTasks: SpotTask[] }>(response);
+  },
+
+  getByYearMonth: async (year: number, month: number): Promise<{ spotTasks: SpotTask[] }> => {
+    const response = await fetch(`${API_URL}/api/spot-tasks/${year}/${month}`, {
+      headers: getAuthHeaders(),
+    });
+    return handleResponse<{ spotTasks: SpotTask[] }>(response);
+  },
+
+  create: async (data: Omit<SpotTask, 'id'>): Promise<{ spotTask: SpotTask }> => {
+    const response = await fetch(`${API_URL}/api/spot-tasks`, {
+      method: 'POST',
+      headers: getAuthHeaders(),
+      body: JSON.stringify(data),
+    });
+    return handleResponse<{ spotTask: SpotTask }>(response);
+  },
+
+  update: async (id: string, data: Partial<SpotTask>): Promise<{ spotTask: SpotTask }> => {
+    const response = await fetch(`${API_URL}/api/spot-tasks/${id}`, {
+      method: 'PATCH',
+      headers: getAuthHeaders(),
+      body: JSON.stringify(data),
+    });
+    return handleResponse<{ spotTask: SpotTask }>(response);
+  },
+
+  delete: async (id: string): Promise<{ message: string }> => {
+    const response = await fetch(`${API_URL}/api/spot-tasks/${id}`, {
+      method: 'DELETE',
+      headers: getAuthHeaders(),
+    });
+    return handleResponse<{ message: string }>(response);
+  },
+
+  bulkDelete: async (ids: string[]): Promise<{ message: string; count: number }> => {
+    const response = await fetch(`${API_URL}/api/spot-tasks/bulk-delete`, {
+      method: 'POST',
+      headers: getAuthHeaders(),
+      body: JSON.stringify({ ids }),
+    });
+    return handleResponse<{ message: string; count: number }>(response);
+  },
+
+  bulkSave: async (tasks: Omit<SpotTask, 'id'>[]): Promise<{ message: string; count: number; spotTasks: SpotTask[] }> => {
+    const response = await fetch(`${API_URL}/api/spot-tasks/bulk-save`, {
+      method: 'POST',
+      headers: getAuthHeaders(),
+      body: JSON.stringify({ tasks }),
+    });
+    return handleResponse<{ message: string; count: number; spotTasks: SpotTask[] }>(response);
   },
 };
