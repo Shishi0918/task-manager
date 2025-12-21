@@ -191,7 +191,7 @@ export const SpotTaskCreatorPage = ({ onBack }: SpotTaskCreatorPageProps) => {
 
   const handleAddTask = () => {
     // 編集中のタスクがある場合、その直下に同じ階層で追加
-    let insertIndex = 0; // デフォルトは先頭
+    let insertIndex = tasks.length; // デフォルトは末尾
     let parentId: string | null = null;
     let level = 0;
 
@@ -1122,7 +1122,12 @@ export const SpotTaskCreatorPage = ({ onBack }: SpotTaskCreatorPageProps) => {
                                 if (e.key === 'Enter' && !isComposing) {
                                   e.preventDefault();
                                   e.stopPropagation();
-                                  handleSaveTaskName(task.id);
+                                  if (!editingTaskName.trim()) {
+                                    // タスク名が空の場合、同じ階層で下に新しいタスクを挿入
+                                    handleAddTask();
+                                  } else {
+                                    handleSaveTaskName(task.id);
+                                  }
                                 } else if (e.key === 'Escape') {
                                   e.preventDefault();
                                   handleCancelEditTaskName();
@@ -1252,6 +1257,21 @@ export const SpotTaskCreatorPage = ({ onBack }: SpotTaskCreatorPageProps) => {
                     </td>
                   </tr>
                 )}
+                {/* 欄外クリックでタスク追加 */}
+                <tr
+                  onClick={() => {
+                    setEditingTaskId(null);
+                    setTimeout(() => handleAddTask(), 0);
+                  }}
+                  className="cursor-pointer hover:bg-gray-50 transition-colors"
+                >
+                  <td
+                    colSpan={days.length + 3}
+                    className="border-b border-r border-gray-200 px-4 py-3 text-center text-gray-400 text-sm"
+                  >
+                    + クリックしてタスクを追加
+                  </td>
+                </tr>
               </tbody>
             </table>
           </div>

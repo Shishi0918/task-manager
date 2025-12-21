@@ -1371,19 +1371,19 @@ export const CalendarPage = ({ onNavigateToTemplateCreator, onNavigateToYearlyTa
                   onClick={onNavigateToTemplateCreator}
                   className="px-4 py-2 bg-white/20 text-white rounded-md hover:bg-white/30 transition-colors text-sm font-medium"
                 >
-                  📝 月次タスク作成
+                  月次タスク作成
                 </button>
                 <button
                   onClick={onNavigateToYearlyTaskCreator}
                   className="px-4 py-2 bg-white/20 text-white rounded-md hover:bg-white/30 transition-colors text-sm font-medium"
                 >
-                  📅 年次タスク作成
+                  年次タスク作成
                 </button>
                 <button
                   onClick={onNavigateToSpotTaskCreator}
                   className="px-4 py-2 bg-white/20 text-white rounded-md hover:bg-white/30 transition-colors text-sm font-medium"
                 >
-                  ⚡ スポットタスク作成
+                  スポットタスク作成
                 </button>
               </div>
             </div>
@@ -1494,7 +1494,7 @@ export const CalendarPage = ({ onNavigateToTemplateCreator, onNavigateToYearlyTa
               onClick={handleApplyTemplate}
               className="px-4 py-2 bg-[#5B9BD5] text-white rounded-md hover:bg-[#4A8AC9] transition-colors text-sm font-medium shadow-sm"
             >
-              📋 貼り付け
+              貼り付け
             </button>
           </div>
 
@@ -1604,7 +1604,13 @@ export const CalendarPage = ({ onNavigateToTemplateCreator, onNavigateToYearlyTa
                               onBlur={() => handleSaveTaskName(task.id)}
                               onKeyDown={(e) => {
                                 if (e.key === 'Enter' && !isComposing) {
-                                  handleSaveTaskName(task.id);
+                                  e.preventDefault();
+                                  if (!editingTaskName.trim()) {
+                                    // タスク名が空の場合、同じ階層で下に新しいタスクを挿入
+                                    handleAddTask();
+                                  } else {
+                                    handleSaveTaskName(task.id);
+                                  }
                                 } else if (e.key === 'Escape') {
                                   handleCancelEditTaskName();
                                 }
@@ -1685,6 +1691,21 @@ export const CalendarPage = ({ onNavigateToTemplateCreator, onNavigateToYearlyTa
                     </td>
                   </tr>
                 )}
+                {/* 欄外クリックでタスク追加 */}
+                <tr
+                  onClick={() => {
+                    setEditingTaskId(null);
+                    setTimeout(() => handleAddTask(), 0);
+                  }}
+                  className="cursor-pointer hover:bg-gray-50 transition-colors"
+                >
+                  <td
+                    colSpan={days.length + 1}
+                    className="border-b border-r border-gray-200 px-4 py-3 text-center text-gray-400 text-sm"
+                  >
+                    + クリックしてタスクを追加
+                  </td>
+                </tr>
               </tbody>
             </table>
           </div>
