@@ -281,7 +281,16 @@ export const MonthlyTemplateCreatorPage = ({ onBack }: MonthlyTemplateCreatorPag
   };
 
   const handleCellClick = (taskId: string, day: number) => {
+    const task = tasks.find(t => t.id === taskId);
     const currentStartDay = selectedStartDays[taskId];
+
+    // 既に確定した範囲内をクリックした場合はクリア
+    if (task && isDateInRange(task, day) && (currentStartDay === null || currentStartDay === undefined)) {
+      setTasks(tasks.map(t =>
+        t.id === taskId ? { ...t, startDay: null, endDay: null } : t
+      ));
+      return;
+    }
 
     if (currentStartDay === null || currentStartDay === undefined) {
       // 1クリック目: 開始日を設定
@@ -725,10 +734,11 @@ export const MonthlyTemplateCreatorPage = ({ onBack }: MonthlyTemplateCreatorPag
   };
 
   const handleExportCSV = () => {
-    // CSVヘッダーとデータを作成
-    const headers = ['タスク名', '開始日', '終了日'];
+    // CSVヘッダーとデータを作成（階層情報を含む）
+    const headers = ['タスク名', '階層', '開始日', '終了日'];
     const rows = tasks.map(task => [
       task.name,
+      String(task.level ?? 0),
       task.startDay !== null ? String(task.startDay) : '',
       task.endDay !== null ? String(task.endDay) : ''
     ]);
@@ -770,8 +780,14 @@ export const MonthlyTemplateCreatorPage = ({ onBack }: MonthlyTemplateCreatorPag
           return;
         }
 
+        // 階層列があるかどうかを判定
+        const hasLevelColumn = headerLine.includes('階層');
+
         // ヘッダー行をスキップしてデータを読み込む
         const newTasks: MonthlyTemplateTask[] = [];
+        // 階層構造を再構築するための親IDスタック
+        const parentStack: { id: string; level: number }[] = [];
+
         for (let i = 1; i < lines.length; i++) {
           const line = lines[i];
           // CSVパース（ダブルクォートを考慮）
@@ -786,17 +802,54 @@ export const MonthlyTemplateCreatorPage = ({ onBack }: MonthlyTemplateCreatorPag
             return cell.trim();
           });
 
-          const name = cells[0] || '';
-          const startDay = cells[1] ? parseInt(cells[1], 10) : null;
-          const endDay = cells[2] ? parseInt(cells[2], 10) : null;
+          let name: string;
+          let level: number;
+          let startDay: number | null;
+          let endDay: number | null;
 
+          if (hasLevelColumn) {
+            // 新形式: タスク名, 階層, 開始日, 終了日
+            name = cells[0] || '';
+            level = cells[1] ? parseInt(cells[1], 10) : 0;
+            if (isNaN(level)) level = 0;
+            startDay = cells[2] ? parseInt(cells[2], 10) : null;
+            endDay = cells[3] ? parseInt(cells[3], 10) : null;
+          } else {
+            // 旧形式: タスク名, 開始日, 終了日
+            name = cells[0] || '';
+            level = 0;
+            startDay = cells[1] ? parseInt(cells[1], 10) : null;
+            endDay = cells[2] ? parseInt(cells[2], 10) : null;
+          }
+
+          // 親IDを決定
+          let parentId: string | null = null;
+          if (level > 0) {
+            // 現在のレベルより低いレベルの親を探す
+            while (parentStack.length > 0 && parentStack[parentStack.length - 1].level >= level) {
+              parentStack.pop();
+            }
+            if (parentStack.length > 0) {
+              parentId = parentStack[parentStack.length - 1].id;
+            }
+          } else {
+            // レベル0の場合はスタックをクリア
+            parentStack.length = 0;
+          }
+
+          const taskId = crypto.randomUUID();
           newTasks.push({
-            id: crypto.randomUUID(),
+            id: taskId,
             name,
             displayOrder: newTasks.length + 1,
             startDay: startDay && !isNaN(startDay) ? startDay : null,
             endDay: endDay && !isNaN(endDay) ? endDay : null,
+            parentId,
+            level,
           });
+
+          // スタックに追加
+          parentStack.push({ id: taskId, level });
         }
 
         if (newTasks.length === 0) {
@@ -1024,23 +1077,26 @@ export const MonthlyTemplateCreatorPage = ({ onBack }: MonthlyTemplateCreatorPag
                           day >= Math.min(taskStartDay, taskHoverDay) &&
                           day <= Math.max(taskStartDay, taskHoverDay);
 
+                        const isRangeStart = inRange && task.startDay === day;
+                        const isRangeEnd = inRange && task.endDay === day;
+
                         return (
                           <td
                             key={day}
-                            className={`border-b border-r border-gray-200 px-2 py-2 text-center cursor-pointer ${
-                              isStartDay
-                                ? 'bg-[#4A90C2]'
-                                : isInPreviewRange
-                                ? 'bg-[#B0E0E6]'
-                                : inRange
-                                ? 'bg-[#87CEEB]'
-                                : ''
-                            }`}
+                            className="border-b border-r border-gray-200 px-0.5 py-1 text-center cursor-pointer"
                             onClick={() => handleCellClick(task.id, day)}
                             onMouseEnter={() => setHoverDays({ ...hoverDays, [task.id]: day })}
                             onMouseLeave={() => setHoverDays({ ...hoverDays, [task.id]: null })}
                           >
-                            <div className="w-4 h-4" />
+                            <div className={`h-5 ${
+                              isStartDay
+                                ? 'bg-[#85c1e9] rounded'
+                                : isInPreviewRange
+                                ? 'bg-[#ebf5fb] rounded'
+                                : inRange
+                                ? `bg-[#85c1e9] ${isRangeStart ? 'rounded-l' : ''} ${isRangeEnd ? 'rounded-r' : ''}`
+                                : ''
+                            }`} />
                           </td>
                         );
                       })}

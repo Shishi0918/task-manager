@@ -1,9 +1,10 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useMemo } from 'react';
 import { completionApi, taskApi, spotTaskApi, templateApi, yearlyTaskApi } from '../services/api';
 import type { TaskWithCompletions, Stats } from '../types';
 import { TaskModal } from '../components/TaskModal';
 import { AccountMenu } from '../components/AccountMenu';
 import { useAuth } from '../contexts/AuthContext';
+import { getHolidaysForMonth } from '../utils/holidays';
 
 // 階層タスクをフラット化する関数
 const flattenTasks = (
@@ -56,6 +57,9 @@ export const CalendarPage = ({ onNavigateToTemplateCreator, onNavigateToYearlyTa
 
   const daysInMonth = new Date(year, month, 0).getDate();
   const days = Array.from({ length: daysInMonth }, (_, i) => i + 1);
+
+  // 祝日データを取得
+  const holidays = useMemo(() => getHolidaysForMonth(year, month), [year, month]);
 
   const fetchData = async (showLoading = true) => {
     if (showLoading) {
@@ -350,7 +354,26 @@ export const CalendarPage = ({ onNavigateToTemplateCreator, onNavigateToYearlyTa
   };
 
   const handleCellClick = async (taskId: string, day: number) => {
+    const task = tasks.find(t => t.id === taskId);
     const currentStartDay = selectedStartDays[taskId];
+
+    // 既に確定した範囲内をクリックした場合はクリア
+    if (task && isDateInRange(task, day) && (currentStartDay === null || currentStartDay === undefined)) {
+      // ローカル状態を即座に更新
+      setTasks(prevTasks => prevTasks.map(t =>
+        t.id === taskId ? { ...t, startDate: null, endDate: null } : t
+      ));
+
+      // 一時IDの場合はAPI呼び出しをスキップ
+      if (!taskId.startsWith('temp_')) {
+        try {
+          await taskApi.updateTask(taskId, { startDate: null, endDate: null });
+        } catch (err) {
+          setError(err instanceof Error ? err.message : '日付のクリアに失敗しました');
+        }
+      }
+      return;
+    }
 
     if (currentStartDay === null || currentStartDay === undefined) {
       // 1クリック目: 開始日を設定
@@ -1498,13 +1521,20 @@ export const CalendarPage = ({ onNavigateToTemplateCreator, onNavigateToYearlyTa
                     ];
                     const isSunday = date.getDay() === 0;
                     const isSaturday = date.getDay() === 6;
+                    const holidayName = holidays.get(day);
+                    const isHoliday = !!holidayName;
+                    const isNonWorkday = isSunday || isSaturday || isHoliday;
                     return (
                       <th
                         key={day}
-                        className="border-r border-gray-200 px-1 py-2 text-xs font-medium bg-gray-50 text-gray-700"
+                        className={`border-r border-gray-200 px-1 py-2 text-xs font-medium ${isNonWorkday ? 'bg-gray-100' : 'bg-gray-50'} text-gray-700`}
+                        title={holidayName || undefined}
                       >
-                        <div className="font-semibold">{day}</div>
-                        <div className={`text-[10px] ${isSunday ? 'text-red-500' : isSaturday ? 'text-blue-500' : 'text-gray-400'}`}>{dayOfWeek}</div>
+                        <div className={`font-semibold ${isHoliday ? 'text-red-500' : ''}`}>{day}</div>
+                        <div className={`text-[10px] ${isSunday || isHoliday ? 'text-red-500' : isSaturday ? 'text-blue-500' : 'text-gray-400'}`}>{dayOfWeek}</div>
+                        {isHoliday && (
+                          <div className="text-[8px] text-red-500">祝日</div>
+                        )}
                       </th>
                     );
                   })}
@@ -1595,6 +1625,10 @@ export const CalendarPage = ({ onNavigateToTemplateCreator, onNavigateToYearlyTa
                         </div>
                       </td>
                       {days.map((day) => {
+                        const date = new Date(year, month - 1, day);
+                        const isWeekend = date.getDay() === 0 || date.getDay() === 6;
+                        const isHoliday = holidays.has(day);
+                        const isNonWorkday = isWeekend || isHoliday;
                         const inRange = isDateInRange(task, day);
                         const isStartDay = taskStartDay === day;
 
@@ -1607,25 +1641,34 @@ export const CalendarPage = ({ onNavigateToTemplateCreator, onNavigateToYearlyTa
                           day >= Math.min(taskStartDay, taskHoverDay) &&
                           day <= Math.max(taskStartDay, taskHoverDay);
 
+                        const rangeStartDay = task.startDate ? parseInt(task.startDate.split('-')[2]) : null;
+                        const rangeEndDay = task.endDate ? parseInt(task.endDate.split('-')[2]) : null;
+                        const isRangeStart = inRange && rangeStartDay === day;
+                        const isRangeEnd = inRange && rangeEndDay === day;
+
                         return (
                           <td
                             key={day}
-                            className={`border-b border-r border-gray-200 px-2 py-2 text-center ${
-                              isCompletedTask ? 'cursor-not-allowed bg-gray-50' : 'cursor-pointer'
+                            className={`border-b border-r border-gray-200 px-0.5 py-1 text-center ${
+                              isNonWorkday ? 'bg-gray-100' : ''
                             } ${
-                              !isCompletedTask && isStartDay
-                                ? 'bg-[#4A90C2]'
-                                : !isCompletedTask && isInPreviewRange
-                                ? 'bg-[#B0E0E6]'
-                                : !isCompletedTask && inRange
-                                ? 'bg-[#87CEEB]'
-                                : ''
+                              isCompletedTask ? 'cursor-not-allowed' : 'cursor-pointer'
                             }`}
                             onClick={() => !isCompletedTask && handleCellClick(task.id, day)}
                             onMouseEnter={() => !isCompletedTask && setHoverDays({ ...hoverDays, [task.id]: day })}
                             onMouseLeave={() => !isCompletedTask && setHoverDays({ ...hoverDays, [task.id]: null })}
                           >
-                            <div className="w-4 h-4" />
+                            <div className={`h-5 ${
+                              isCompletedTask ? 'bg-gray-50' : ''
+                            } ${
+                              !isCompletedTask && isStartDay
+                                ? 'bg-[#85c1e9] rounded'
+                                : !isCompletedTask && isInPreviewRange
+                                ? 'bg-[#ebf5fb] rounded'
+                                : !isCompletedTask && inRange
+                                ? `bg-[#85c1e9] ${isRangeStart ? 'rounded-l' : ''} ${isRangeEnd ? 'rounded-r' : ''}`
+                                : ''
+                            }`} />
                           </td>
                         );
                       })}
