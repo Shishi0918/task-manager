@@ -1000,41 +1000,41 @@ export const SpotTaskCreatorPage = ({ onBack }: SpotTaskCreatorPageProps) => {
           </div>
         )}
 
-        <div className="bg-white shadow rounded-lg p-6 mb-6">
-          <div className="mb-4 flex items-center gap-3">
+        <div className="bg-white shadow-md rounded-xl p-6 mb-6">
+          <div className="mb-4 flex items-center gap-2 flex-wrap">
             <button
               onMouseDown={(e) => {
                 e.preventDefault();
                 handleAddTask();
               }}
-              className="px-4 py-2 bg-indigo-600 text-white rounded hover:bg-indigo-700"
+              className="px-4 py-2 bg-[#5B9BD5] text-white rounded-md hover:bg-[#4A8AC9] transition-colors text-sm font-medium shadow-sm"
             >
               + タスク追加
             </button>
             <button
               onClick={handleBulkDelete}
               disabled={checkedTasks.size === 0}
-              className={`px-4 py-2 text-white rounded ${
+              className={`px-4 py-2 text-white rounded-md transition-colors text-sm font-medium shadow-sm ${
                 checkedTasks.size === 0
                   ? 'bg-gray-400 cursor-not-allowed'
-                  : 'bg-red-600 hover:bg-red-700'
+                  : 'bg-red-500 hover:bg-red-600'
               }`}
             >
               タスク削除 ({checkedTasks.size})
             </button>
             <button
               onClick={handleSortByYearMonth}
-              className="px-4 py-2 bg-[#5B9BD5] text-white rounded hover:bg-[#4A8AC9]"
+              className="px-4 py-2 bg-gray-100 hover:bg-gray-200 rounded-md transition-colors text-sm font-medium text-gray-700"
             >
               ソート
             </button>
             <button
               onClick={handleExportCSV}
-              className="px-4 py-2 bg-green-600 text-white rounded hover:bg-green-700"
+              className="px-4 py-2 bg-gray-100 hover:bg-gray-200 rounded-md transition-colors text-sm font-medium text-gray-700"
             >
               CSVエクスポート
             </button>
-            <label className="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700 cursor-pointer">
+            <label className="px-4 py-2 bg-gray-100 hover:bg-gray-200 rounded-md transition-colors text-sm font-medium text-gray-700 cursor-pointer">
               CSVインポート
               <input
                 type="file"

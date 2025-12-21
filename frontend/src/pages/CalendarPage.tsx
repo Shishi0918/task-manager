@@ -366,6 +366,24 @@ export const CalendarPage = ({ onNavigateToTemplateCreator, onNavigateToYearlyTa
     const task = tasks.find(t => t.id === taskId);
     const currentStartDay = selectedStartDays[taskId];
 
+    // 親タスクの日付範囲をチェック
+    if (task?.parentId) {
+      const parentTask = tasks.find(t => t.id === task.parentId);
+      if (parentTask) {
+        // 親に日付範囲がない場合は子も日付設定不可
+        if (!parentTask.startDate || !parentTask.endDate) {
+          return;
+        }
+        // 親の日付範囲を取得（日のみ）
+        const parentStartDay = parseInt(parentTask.startDate.split('-')[2], 10);
+        const parentEndDay = parseInt(parentTask.endDate.split('-')[2], 10);
+        // クリックした日が親の範囲外なら無視
+        if (day < parentStartDay || day > parentEndDay) {
+          return;
+        }
+      }
+    }
+
     // 既に確定した範囲内をクリックした場合はクリア
     if (task && isDateInRange(task, day) && (currentStartDay === null || currentStartDay === undefined)) {
       // ローカル状態を即座に更新
@@ -858,9 +876,10 @@ export const CalendarPage = ({ onNavigateToTemplateCreator, onNavigateToYearlyTa
               let newEndDate = task.endDate ?? null;
               let needsUpdate = false;
 
-              // 子の開始日が親の開始日より前なら、親の開始日に合わせる
+              // 子の開始日が親の開始日より前なら、開始日・終了日を親の開始日に合わせる
               if (newStartDate && newStartDate < parentStartDate) {
                 newStartDate = parentStartDate;
+                newEndDate = parentStartDate;
                 needsUpdate = true;
               }
 
