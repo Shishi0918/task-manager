@@ -1094,20 +1094,15 @@ export const CalendarPage = ({ onNavigateToTemplateCreator, onNavigateToYearlyTa
       // その月の日数を取得
       const daysInCurrentMonth = new Date(year, month, 0).getDate();
 
-      // 階層を保持してタスクを作成するヘルパー関数
+      // 階層を保持してタスクを作成するヘルパー関数（並列化版）
       const createTasksWithHierarchy = async (
         sourceTasks: Array<{ id: string; name: string; startDay: number | null; endDay: number | null; parentId?: string | null }>,
         startingOrder: number
       ): Promise<TaskWithCompletions[]> => {
-        const results: TaskWithCompletions[] = [];
-        const oldIdToNewId = new Map<string, string>();
-        const newIdToLevel = new Map<string, number>();
-
-        // displayOrder順にソートしてから処理（親が先に作成されるように）
         const sortedTasks = [...sourceTasks];
 
-        for (let i = 0; i < sortedTasks.length; i++) {
-          const sourceTask = sortedTasks[i];
+        // Step 1: 全タスクを並列で作成（parentIdなし）
+        const createPromises = sortedTasks.map((sourceTask, i) => {
           let startDateStr: string | undefined = undefined;
           let endDateStr: string | undefined = undefined;
 
@@ -1118,8 +1113,7 @@ export const CalendarPage = ({ onNavigateToTemplateCreator, onNavigateToYearlyTa
             endDateStr = `${year}-${String(month).padStart(2, '0')}-${String(adjustedEndDay).padStart(2, '0')}`;
           }
 
-          // タスクを作成
-          const result = await taskApi.createTask(
+          return taskApi.createTask(
             sourceTask.name,
             year,
             month,
@@ -1127,23 +1121,47 @@ export const CalendarPage = ({ onNavigateToTemplateCreator, onNavigateToYearlyTa
             startDateStr,
             endDateStr
           );
+        });
 
-          // 旧IDと新IDのマッピングを保存
-          oldIdToNewId.set(sourceTask.id, result.task.id);
+        const createResults = await Promise.all(createPromises);
 
-          // 親タスクがある場合、親IDを更新
-          let newParentId: string | null = null;
-          let level = 0;
+        // 旧IDと新IDのマッピングを作成
+        const oldIdToNewId = new Map<string, string>();
+        sortedTasks.forEach((sourceTask, i) => {
+          oldIdToNewId.set(sourceTask.id, createResults[i].task.id);
+        });
+
+        // Step 2: 親タスクがあるものだけ並列でparentIdを更新
+        const updatePromises: Promise<any>[] = [];
+        const parentIdMap = new Map<string, string>(); // newTaskId -> newParentId
+
+        sortedTasks.forEach((sourceTask, i) => {
           if (sourceTask.parentId && oldIdToNewId.has(sourceTask.parentId)) {
-            newParentId = oldIdToNewId.get(sourceTask.parentId)!;
-            await taskApi.updateTask(result.task.id, { parentId: newParentId });
-            level = (newIdToLevel.get(newParentId) ?? 0) + 1;
+            const newTaskId = createResults[i].task.id;
+            const newParentId = oldIdToNewId.get(sourceTask.parentId)!;
+            parentIdMap.set(newTaskId, newParentId);
+            updatePromises.push(taskApi.updateTask(newTaskId, { parentId: newParentId }));
           }
-          newIdToLevel.set(result.task.id, level);
+        });
 
-          // TaskWithCompletions形式に変換
-          const taskWithCompletions: TaskWithCompletions = {
-            id: result.task.id,
+        if (updatePromises.length > 0) {
+          await Promise.all(updatePromises);
+        }
+
+        // Step 3: レベルを計算してTaskWithCompletions形式に変換
+        const calculateLevel = (taskId: string): number => {
+          const parentId = parentIdMap.get(taskId);
+          if (!parentId) return 0;
+          return calculateLevel(parentId) + 1;
+        };
+
+        const results: TaskWithCompletions[] = createResults.map((result) => {
+          const newTaskId = result.task.id;
+          const newParentId = parentIdMap.get(newTaskId) ?? null;
+          const level = calculateLevel(newTaskId);
+
+          return {
+            id: newTaskId,
             name: result.task.name,
             year: result.task.year,
             month: result.task.month,
@@ -1155,36 +1173,31 @@ export const CalendarPage = ({ onNavigateToTemplateCreator, onNavigateToYearlyTa
             completions: {},
             level,
           };
-
-          results.push(taskWithCompletions);
-        }
+        });
 
         return results;
       };
 
-      // 各タスクソースを順番に処理（階層を維持するため）
-      let currentOrder = maxDisplayOrder + 1;
-      const newTasks: TaskWithCompletions[] = [];
+      // 各タスクソースを並列で処理
+      const baseOrder = maxDisplayOrder + 1;
+      const monthlyOrder = baseOrder;
+      const yearlyOrder = baseOrder + monthlyTemplateTasks.length;
+      const spotOrder = yearlyOrder + matchingYearlyTasks.length;
 
-      // 月次テンプレートタスクを作成
-      if (monthlyTemplateTasks.length > 0) {
-        const monthlyResults = await createTasksWithHierarchy(monthlyTemplateTasks, currentOrder);
-        newTasks.push(...monthlyResults);
-        currentOrder += monthlyTemplateTasks.length;
-      }
+      // 3種類のタスクを並列で作成
+      const [monthlyResults, yearlyResults, spotResults] = await Promise.all([
+        monthlyTemplateTasks.length > 0
+          ? createTasksWithHierarchy(monthlyTemplateTasks, monthlyOrder)
+          : Promise.resolve([]),
+        matchingYearlyTasks.length > 0
+          ? createTasksWithHierarchy(matchingYearlyTasks, yearlyOrder)
+          : Promise.resolve([]),
+        spotTasks.length > 0
+          ? createTasksWithHierarchy(spotTasks, spotOrder)
+          : Promise.resolve([]),
+      ]);
 
-      // 年次タスクを作成
-      if (matchingYearlyTasks.length > 0) {
-        const yearlyResults = await createTasksWithHierarchy(matchingYearlyTasks, currentOrder);
-        newTasks.push(...yearlyResults);
-        currentOrder += matchingYearlyTasks.length;
-      }
-
-      // スポットタスクを作成
-      if (spotTasks.length > 0) {
-        const spotResults = await createTasksWithHierarchy(spotTasks, currentOrder);
-        newTasks.push(...spotResults);
-      }
+      const newTasks = [...monthlyResults, ...yearlyResults, ...spotResults];
 
       // 新規タスクをローカルステートに直接追加（リロード不要）
       setTasks(prevTasks => [...prevTasks, ...newTasks]);
