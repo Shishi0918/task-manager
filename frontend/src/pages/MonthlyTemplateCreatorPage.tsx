@@ -828,25 +828,25 @@ export const MonthlyTemplateCreatorPage = ({ onBack }: MonthlyTemplateCreatorPag
 
   return (
     <div className="min-h-screen bg-gray-100">
-      <header className="bg-white shadow">
+      <header className="bg-[#5B9BD5] shadow-lg">
         <div className="max-w-full mx-auto px-4 sm:px-6 lg:px-8 py-4">
           <div className="flex justify-between items-center">
             <div className="flex items-center gap-4">
               <button
                 onClick={onBack}
-                className="px-4 py-2 bg-gray-600 text-white rounded hover:bg-gray-700"
+                className="px-4 py-2 bg-white/20 text-white rounded-md hover:bg-white/30 transition-colors text-sm font-medium"
               >
                 ← 戻る
               </button>
-              <h1 className="text-2xl font-bold text-gray-900">
+              <h1 className="text-2xl font-bold text-white tracking-wide">
                 月次テンプレート作成
               </h1>
             </div>
             <div className="flex items-center gap-4">
-              <span className="text-sm text-gray-600">{user?.username}</span>
+              <span className="text-sm text-white/80">{user?.username}</span>
               <button
                 onClick={logout}
-                className="text-sm text-indigo-600 hover:text-indigo-500"
+                className="text-sm text-white/80 hover:text-white"
               >
                 ログアウト
               </button>
@@ -907,28 +907,28 @@ export const MonthlyTemplateCreatorPage = ({ onBack }: MonthlyTemplateCreatorPag
             </label>
           </div>
 
-          <div className="overflow-x-auto">
+          <div className="overflow-x-auto rounded-lg border border-gray-200">
             <table ref={tableRef} className="min-w-full border-collapse">
               <thead>
                 <tr>
-                  <th className="border border-gray-300 px-1 py-1 bg-gray-50 sticky left-0 z-10 w-[120px] min-w-[120px]">
-                    <div className="flex items-center gap-1">
+                  <th className="border-r border-gray-300 px-2 py-3 bg-[#5B9BD5] text-white sticky left-0 z-10 w-[140px] min-w-[140px] font-medium">
+                    <div className="flex items-center gap-2">
                       <input
                         type="checkbox"
                         checked={tasks.length > 0 && checkedTasks.size === tasks.length}
                         onChange={handleToggleAllTasks}
-                        className="w-4 h-4 cursor-pointer"
+                        className="w-4 h-4 cursor-pointer accent-blue-500"
                         title="全選択/全解除"
                       />
-                      <span>タスク</span>
+                      <span className="text-sm">タスク</span>
                     </div>
                   </th>
                   {days.map((day) => (
                     <th
                       key={day}
-                      className="border border-gray-300 px-2 py-2 text-sm bg-gray-50"
+                      className="border-r border-gray-300 px-1 py-2 text-xs font-medium bg-[#5B9BD5] text-white"
                     >
-                      <div>{day}</div>
+                      <div className="font-semibold">{day}</div>
                     </th>
                   ))}
                 </tr>
@@ -956,16 +956,16 @@ export const MonthlyTemplateCreatorPage = ({ onBack }: MonthlyTemplateCreatorPag
                     <tr
                       key={task.id}
                       data-task-id={task.id}
-                      className={`${isDragging ? 'opacity-50' : ''} ${isDragOver ? 'border-t-2 border-t-blue-500' : ''} ${showBottomBorder ? 'border-b-2 border-b-blue-500' : ''} ${isNestTarget ? 'bg-green-100' : ''} ${isUnnestMode ? 'bg-yellow-100' : ''}`}
+                      className={`${isDragging ? 'opacity-50' : ''} ${isDragOver ? 'border-t-2 border-t-purple-500' : ''} ${showBottomBorder ? 'border-b-2 border-b-purple-500' : ''} ${isNestTarget ? 'bg-green-50' : ''} ${isUnnestMode ? 'bg-amber-50' : ''}`}
                       draggable
                       onDragStart={(e) => handleDragStart(e, task.id)}
                       onDrop={(e) => handleDrop(e, task.id)}
                       onDragEnd={handleDragEnd}
                     >
                       <td
-                        className={`border border-gray-300 px-1 py-1 sticky left-0 ${isNestTarget ? 'bg-green-100' : isUnnestMode ? 'bg-yellow-100' : 'bg-white'} z-10 w-[120px] min-w-[120px]`}
+                        className={`border-b border-r border-gray-200 px-1 py-1 sticky left-0 ${isNestTarget ? 'bg-green-50' : isUnnestMode ? 'bg-amber-50' : 'bg-white'} z-10 w-[140px] min-w-[140px]`}
                         style={{
-                          paddingLeft: `${4 + taskLevel * 20}px`
+                          paddingLeft: `${8 + taskLevel * 16}px`
                         }}
                       >
                         <div className="flex items-center gap-1">
@@ -1027,13 +1027,13 @@ export const MonthlyTemplateCreatorPage = ({ onBack }: MonthlyTemplateCreatorPag
                         return (
                           <td
                             key={day}
-                            className={`border border-gray-300 px-2 py-2 text-center cursor-pointer ${
+                            className={`border-b border-r border-gray-200 px-2 py-2 text-center cursor-pointer ${
                               isStartDay
-                                ? 'bg-blue-300'
+                                ? 'bg-[#4A90C2]'
                                 : isInPreviewRange
-                                ? 'bg-yellow-200'
+                                ? 'bg-[#B0E0E6]'
                                 : inRange
-                                ? 'bg-yellow-200'
+                                ? 'bg-[#87CEEB]'
                                 : ''
                             }`}
                             onClick={() => handleCellClick(task.id, day)}

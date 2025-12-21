@@ -1336,31 +1336,33 @@ export const CalendarPage = ({ onNavigateToTemplateCreator, onNavigateToYearlyTa
 
   return (
     <div className="min-h-screen bg-gray-100">
-      <header className="bg-white shadow">
+      <header className="bg-[#5B9BD5] shadow-lg">
         <div className="max-w-full mx-auto px-4 sm:px-6 lg:px-8 py-4">
           <div className="flex justify-between items-center">
             <div className="flex items-center gap-4">
-              <h1 className="text-2xl font-bold text-gray-900">
+              <h1 className="text-2xl font-bold text-white tracking-wide">
                 月次タスク管理
               </h1>
-              <button
-                onClick={onNavigateToTemplateCreator}
-                className="px-4 py-2 bg-green-600 text-white rounded hover:bg-green-700"
-              >
-                📝 月次タスク作成
-              </button>
-              <button
-                onClick={onNavigateToYearlyTaskCreator}
-                className="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700"
-              >
-                📅 年次タスク作成
-              </button>
-              <button
-                onClick={onNavigateToSpotTaskCreator}
-                className="px-4 py-2 bg-orange-600 text-white rounded hover:bg-orange-700"
-              >
-                ⚡ スポットタスク作成
-              </button>
+              <div className="flex gap-2">
+                <button
+                  onClick={onNavigateToTemplateCreator}
+                  className="px-4 py-2 bg-white/20 text-white rounded-md hover:bg-white/30 transition-colors text-sm font-medium"
+                >
+                  📝 月次タスク作成
+                </button>
+                <button
+                  onClick={onNavigateToYearlyTaskCreator}
+                  className="px-4 py-2 bg-white/20 text-white rounded-md hover:bg-white/30 transition-colors text-sm font-medium"
+                >
+                  📅 年次タスク作成
+                </button>
+                <button
+                  onClick={onNavigateToSpotTaskCreator}
+                  className="px-4 py-2 bg-white/20 text-white rounded-md hover:bg-white/30 transition-colors text-sm font-medium"
+                >
+                  ⚡ スポットタスク作成
+                </button>
+              </div>
             </div>
             <AccountMenu onNavigateToOrganization={onNavigateToOrganization} />
           </div>
@@ -1375,40 +1377,40 @@ export const CalendarPage = ({ onNavigateToTemplateCreator, onNavigateToYearlyTa
         )}
 
 
-        <div className="bg-white shadow rounded-lg p-6 mb-6">
-          <div className="flex justify-between items-center mb-4">
+        <div className="bg-white shadow-md rounded-xl p-6 mb-6">
+          <div className="flex justify-between items-center mb-5">
             <button
               onClick={goToPreviousMonth}
-              className="px-4 py-2 bg-gray-200 hover:bg-gray-300 rounded"
+              className="px-4 py-2 bg-gray-100 hover:bg-gray-200 rounded-lg transition-colors text-gray-700 font-medium"
             >
-              前月
+              ◀ 前月
             </button>
             <div className="flex items-center gap-4">
-              <h2 className="text-xl font-bold">
-                {year}年 {month}月
+              <h2 className="text-2xl font-bold text-gray-800">
+                {year}年 <span className="text-[#5B9BD5]">{month}月</span>
               </h2>
               <button
                 onClick={goToToday}
-                className="px-3 py-1 text-sm bg-indigo-100 hover:bg-indigo-200 text-indigo-700 rounded"
+                className="px-3 py-1.5 text-sm bg-[#5B9BD5]/10 hover:bg-[#5B9BD5]/20 text-[#5B9BD5] rounded-md font-medium transition-colors"
               >
                 今月
               </button>
             </div>
             <button
               onClick={goToNextMonth}
-              className="px-4 py-2 bg-gray-200 hover:bg-gray-300 rounded"
+              className="px-4 py-2 bg-gray-100 hover:bg-gray-200 rounded-lg transition-colors text-gray-700 font-medium"
             >
-              次月
+              次月 ▶
             </button>
           </div>
 
-          <div className="mb-4 flex items-center gap-3">
+          <div className="mb-4 flex items-center gap-2 flex-wrap">
             <button
               onMouseDown={(e) => {
                 e.preventDefault(); // blurを防ぐ
                 handleAddTask();
               }}
-              className="px-4 py-2 bg-indigo-600 text-white rounded hover:bg-indigo-700"
+              className="px-4 py-2 bg-[#5B9BD5] text-white rounded-md hover:bg-[#4A8AC9] transition-colors text-sm font-medium shadow-sm"
             >
               + タスク追加
             </button>
@@ -1420,72 +1422,73 @@ export const CalendarPage = ({ onNavigateToTemplateCreator, onNavigateToYearlyTa
                 <button
                   onClick={handleCompleteSelected}
                   disabled={checkedTasks.size === 0}
-                  className={`px-4 py-2 text-white rounded ${
+                  className={`px-4 py-2 text-white rounded-md transition-colors text-sm font-medium shadow-sm ${
                     checkedTasks.size === 0
-                      ? 'bg-gray-400 cursor-not-allowed'
-                      : 'bg-blue-600 hover:bg-blue-700'
+                      ? 'bg-gray-300 cursor-not-allowed'
+                      : 'bg-emerald-600 hover:bg-emerald-700'
                   }`}
                 >
-                  {allCheckedCompleted ? '↶ 未完了に戻す' : '✓ タスク完了'} ({checkedTasks.size})
+                  {allCheckedCompleted ? '↶ 未完了に戻す' : '✓ 完了'} ({checkedTasks.size})
                 </button>
               );
             })()}
             <button
               onClick={handleBulkDelete}
               disabled={checkedTasks.size === 0}
-              className={`px-4 py-2 text-white rounded ${
+              className={`px-4 py-2 text-white rounded-md transition-colors text-sm font-medium shadow-sm ${
                 checkedTasks.size === 0
-                  ? 'bg-gray-400 cursor-not-allowed'
-                  : 'bg-red-600 hover:bg-red-700'
+                  ? 'bg-gray-300 cursor-not-allowed'
+                  : 'bg-rose-600 hover:bg-rose-700'
               }`}
             >
-              タスク削除 ({checkedTasks.size})
+              削除 ({checkedTasks.size})
             </button>
             <button
               onClick={handleSortByStartDate}
-              className="px-4 py-2 bg-gray-600 text-white rounded hover:bg-gray-700"
+              className="px-4 py-2 bg-slate-600 text-white rounded-md hover:bg-slate-700 transition-colors text-sm font-medium shadow-sm"
             >
               ソート
             </button>
             <button
               onClick={handleUndo}
               disabled={undoStack.length === 0}
-              className={`px-4 py-2 text-white rounded ${
+              className={`px-4 py-2 text-white rounded-md transition-colors text-sm font-medium shadow-sm ${
                 undoStack.length === 0
-                  ? 'bg-gray-400 cursor-not-allowed'
-                  : 'bg-orange-600 hover:bg-orange-700'
+                  ? 'bg-gray-300 cursor-not-allowed'
+                  : 'bg-amber-600 hover:bg-amber-700'
               }`}
             >
-              ↶ 元に戻す {undoStack.length > 0 && `(${undoStack.length})`}
+              ↶ 戻す {undoStack.length > 0 && `(${undoStack.length})`}
             </button>
+            <div className="w-px h-6 bg-gray-300 mx-1" />
             <button
               onClick={handleCarryForward}
-              className="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700"
+              className="px-4 py-2 bg-sky-600 text-white rounded-md hover:bg-sky-700 transition-colors text-sm font-medium shadow-sm"
             >
-              ➡️ 月次繰越
+              ➡️ 繰越
             </button>
             <button
               onClick={handleApplyTemplate}
-              className="px-4 py-2 bg-purple-600 text-white rounded hover:bg-purple-700"
+              className="px-4 py-2 bg-[#5B9BD5] text-white rounded-md hover:bg-[#4A8AC9] transition-colors text-sm font-medium shadow-sm"
             >
-              📋 タスク貼り付け
+              📋 貼り付け
             </button>
           </div>
 
-          <div className="overflow-x-auto overflow-y-visible pb-4" style={{ scrollbarWidth: 'thin' }}>
+          <div className="overflow-x-auto overflow-y-visible pb-4 rounded-lg border border-gray-200" style={{ scrollbarWidth: 'thin' }}>
             <table ref={tableRef} className="min-w-full border-collapse">
               <thead>
                 <tr>
-                  <th className="border border-gray-300 px-1 py-1 bg-gray-50 sticky left-0 z-10 w-[120px] min-w-[120px]">
-                    <div className="flex items-center gap-1">
+                  <th className="border-r border-gray-300 px-2 py-3 bg-[#5B9BD5] text-white sticky left-0 z-10 w-[140px] min-w-[140px] font-medium">
+                    <div className="flex items-center gap-2">
                       <input
                         type="checkbox"
                         checked={tasks.length > 0 && checkedTasks.size === tasks.length}
                         onChange={handleToggleAllTasks}
-                        className="w-4 h-4 cursor-pointer"
+                        className="w-4 h-4 cursor-pointer accent-blue-500"
                         title="全選択/全解除"
                       />
-                      <span>タスク</span>
+                      <span className="text-sm">タスク</span>
                     </div>
                   </th>
                   {days.map((day) => {
@@ -1493,16 +1496,15 @@ export const CalendarPage = ({ onNavigateToTemplateCreator, onNavigateToYearlyTa
                     const dayOfWeek = ['日', '月', '火', '水', '木', '金', '土'][
                       date.getDay()
                     ];
-                    const isWeekend = date.getDay() === 0 || date.getDay() === 6;
+                    const isSunday = date.getDay() === 0;
+                    const isSaturday = date.getDay() === 6;
                     return (
                       <th
                         key={day}
-                        className={`border border-gray-300 px-2 py-2 text-sm ${
-                          isWeekend ? 'bg-red-50' : 'bg-gray-50'
-                        }`}
+                        className="border-r border-gray-200 px-1 py-2 text-xs font-medium bg-gray-50 text-gray-700"
                       >
-                        <div>{day}</div>
-                        <div className="text-xs text-gray-500">{dayOfWeek}</div>
+                        <div className="font-semibold">{day}</div>
+                        <div className={`text-[10px] ${isSunday ? 'text-red-500' : isSaturday ? 'text-blue-500' : 'text-gray-400'}`}>{dayOfWeek}</div>
                       </th>
                     );
                   })}
@@ -1545,9 +1547,9 @@ export const CalendarPage = ({ onNavigateToTemplateCreator, onNavigateToYearlyTa
                       onDragEnd={handleDragEnd}
                     >
                       <td
-                        className={`border border-gray-300 px-1 py-1 sticky left-0 ${isNestTarget ? 'bg-green-100' : isUnnestMode ? 'bg-yellow-100' : rowBgClass} z-10 w-[120px] min-w-[120px] ${textColorClass}`}
+                        className={`border-b border-r border-gray-200 px-1 py-1 sticky left-0 ${isNestTarget ? 'bg-green-50' : isUnnestMode ? 'bg-amber-50' : rowBgClass} z-10 w-[140px] min-w-[140px] ${textColorClass}`}
                         style={{
-                          paddingLeft: `${4 + taskLevel * 20}px` // 階層に応じたインデント
+                          paddingLeft: `${8 + taskLevel * 16}px` // 階層に応じたインデント
                         }}
                       >
                         <div className="flex items-center gap-1">
@@ -1594,8 +1596,6 @@ export const CalendarPage = ({ onNavigateToTemplateCreator, onNavigateToYearlyTa
                       </td>
                       {days.map((day) => {
                         const inRange = isDateInRange(task, day);
-                        const date = new Date(year, month - 1, day);
-                        const isWeekend = date.getDay() === 0 || date.getDay() === 6;
                         const isStartDay = taskStartDay === day;
 
                         // プレビュー範囲の判定（開始日選択後、マウスオーバー中）
@@ -1610,17 +1610,15 @@ export const CalendarPage = ({ onNavigateToTemplateCreator, onNavigateToYearlyTa
                         return (
                           <td
                             key={day}
-                            className={`border border-gray-300 px-2 py-2 text-center ${
-                              isCompletedTask ? 'cursor-not-allowed bg-gray-100' : 'cursor-pointer'
+                            className={`border-b border-r border-gray-200 px-2 py-2 text-center ${
+                              isCompletedTask ? 'cursor-not-allowed bg-gray-50' : 'cursor-pointer'
                             } ${
                               !isCompletedTask && isStartDay
-                                ? 'bg-blue-300'
+                                ? 'bg-[#4A90C2]'
                                 : !isCompletedTask && isInPreviewRange
-                                ? 'bg-yellow-200'
+                                ? 'bg-[#B0E0E6]'
                                 : !isCompletedTask && inRange
-                                ? 'bg-yellow-200'
-                                : !isCompletedTask && isWeekend
-                                ? 'bg-red-50'
+                                ? 'bg-[#87CEEB]'
                                 : ''
                             }`}
                             onClick={() => !isCompletedTask && handleCellClick(task.id, day)}
