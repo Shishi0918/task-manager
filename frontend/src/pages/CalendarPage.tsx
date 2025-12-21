@@ -1480,7 +1480,7 @@ export const CalendarPage = ({ onNavigateToTemplateCreator, onNavigateToYearlyTa
             </button>
             <button
               onClick={handleSortByStartDate}
-              className="px-4 py-2 bg-slate-600 text-white rounded-md hover:bg-slate-700 transition-colors text-sm font-medium shadow-sm"
+              className="px-4 py-2 bg-[#5B9BD5] text-white rounded-md hover:bg-[#4A8AC9] transition-colors text-sm font-medium shadow-sm"
             >
               ソート
             </button>
@@ -1490,7 +1490,7 @@ export const CalendarPage = ({ onNavigateToTemplateCreator, onNavigateToYearlyTa
               className={`px-4 py-2 text-white rounded-md transition-colors text-sm font-medium shadow-sm ${
                 undoStack.length === 0
                   ? 'bg-gray-300 cursor-not-allowed'
-                  : 'bg-amber-600 hover:bg-amber-700'
+                  : 'bg-[#5B9BD5] hover:bg-[#4A8AC9]'
               }`}
             >
               ↶ 戻す {undoStack.length > 0 && `(${undoStack.length})`}
