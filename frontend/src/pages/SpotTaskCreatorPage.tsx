@@ -324,7 +324,43 @@ export const SpotTaskCreatorPage = ({ onBack }: SpotTaskCreatorPageProps) => {
   };
 
   const handleSortByYearMonth = () => {
-    const sorted = [...tasks].sort((a, b) => {
+    // 階層構造を保持したソート
+    const sortHierarchically = (
+      taskList: LocalSpotTask[],
+      compareFn: (a: LocalSpotTask, b: LocalSpotTask) => number
+    ): LocalSpotTask[] => {
+      // ルートタスク（parentIdがnull/undefined）を取得
+      const rootTasks = taskList.filter(t => !t.parentId);
+
+      // 子タスクをparentIdでグループ化
+      const childrenMap = new Map<string, LocalSpotTask[]>();
+      taskList.forEach(t => {
+        if (t.parentId) {
+          const children = childrenMap.get(t.parentId) || [];
+          children.push(t);
+          childrenMap.set(t.parentId, children);
+        }
+      });
+
+      // 再帰的にソートしてフラット化
+      const sortAndFlatten = (tasksToSort: LocalSpotTask[], level: number): LocalSpotTask[] => {
+        const sorted = [...tasksToSort].sort(compareFn);
+        const result: LocalSpotTask[] = [];
+
+        for (const task of sorted) {
+          result.push({ ...task, level });
+          const children = childrenMap.get(task.id);
+          if (children && children.length > 0) {
+            result.push(...sortAndFlatten(children, level + 1));
+          }
+        }
+        return result;
+      };
+
+      return sortAndFlatten(rootTasks, 0);
+    };
+
+    const sorted = sortHierarchically(tasks, (a, b) => {
       if (a.implementationYear !== b.implementationYear) {
         return a.implementationYear - b.implementationYear;
       }

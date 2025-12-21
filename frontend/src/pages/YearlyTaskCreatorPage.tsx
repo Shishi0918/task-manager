@@ -298,7 +298,43 @@ export const YearlyTaskCreatorPage = ({ onBack }: YearlyTaskCreatorPageProps) =>
   };
 
   const handleSortByImplementationMonth = () => {
-    const sorted = [...tasks].sort((a, b) => {
+    // 階層構造を保持したソート
+    const sortHierarchically = (
+      taskList: YearlyTask[],
+      compareFn: (a: YearlyTask, b: YearlyTask) => number
+    ): YearlyTask[] => {
+      // ルートタスク（parentIdがnull/undefined）を取得
+      const rootTasks = taskList.filter(t => !t.parentId);
+
+      // 子タスクをparentIdでグループ化
+      const childrenMap = new Map<string, YearlyTask[]>();
+      taskList.forEach(t => {
+        if (t.parentId) {
+          const children = childrenMap.get(t.parentId) || [];
+          children.push(t);
+          childrenMap.set(t.parentId, children);
+        }
+      });
+
+      // 再帰的にソートしてフラット化
+      const sortAndFlatten = (tasksToSort: YearlyTask[], level: number): YearlyTask[] => {
+        const sorted = [...tasksToSort].sort(compareFn);
+        const result: YearlyTask[] = [];
+
+        for (const task of sorted) {
+          result.push({ ...task, level });
+          const children = childrenMap.get(task.id);
+          if (children && children.length > 0) {
+            result.push(...sortAndFlatten(children, level + 1));
+          }
+        }
+        return result;
+      };
+
+      return sortAndFlatten(rootTasks, 0);
+    };
+
+    const sorted = sortHierarchically(tasks, (a, b) => {
       // implementationMonthがない場合は後ろに配置
       if (a.implementationMonth === null && b.implementationMonth === null) return 0;
       if (a.implementationMonth === null) return 1;

@@ -281,13 +281,46 @@ export const MonthlyTemplateCreatorPage = ({ onBack }: MonthlyTemplateCreatorPag
   };
 
   const handleSortByStartDay = () => {
-    const sorted = [...tasks].sort((a, b) => {
-      // startDayがない場合は後ろに配置
+    // 階層構造を保持したソート
+    const sortHierarchically = (
+      taskList: MonthlyTemplateTask[],
+      compareFn: (a: MonthlyTemplateTask, b: MonthlyTemplateTask) => number
+    ): MonthlyTemplateTask[] => {
+      // ルートタスク（parentIdがnull/undefined）を取得
+      const rootTasks = taskList.filter(t => !t.parentId);
+
+      // 子タスクをparentIdでグループ化
+      const childrenMap = new Map<string, MonthlyTemplateTask[]>();
+      taskList.forEach(t => {
+        if (t.parentId) {
+          const children = childrenMap.get(t.parentId) || [];
+          children.push(t);
+          childrenMap.set(t.parentId, children);
+        }
+      });
+
+      // 再帰的にソートしてフラット化
+      const sortAndFlatten = (tasksToSort: MonthlyTemplateTask[], level: number): MonthlyTemplateTask[] => {
+        const sorted = [...tasksToSort].sort(compareFn);
+        const result: MonthlyTemplateTask[] = [];
+
+        for (const task of sorted) {
+          result.push({ ...task, level });
+          const children = childrenMap.get(task.id);
+          if (children && children.length > 0) {
+            result.push(...sortAndFlatten(children, level + 1));
+          }
+        }
+        return result;
+      };
+
+      return sortAndFlatten(rootTasks, 0);
+    };
+
+    const sorted = sortHierarchically(tasks, (a, b) => {
       if (a.startDay === null && b.startDay === null) return 0;
       if (a.startDay === null) return 1;
       if (b.startDay === null) return -1;
-
-      // startDayで比較
       return a.startDay - b.startDay;
     });
 
