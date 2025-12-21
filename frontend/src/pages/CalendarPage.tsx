@@ -142,9 +142,41 @@ export const CalendarPage = ({ onNavigateToTemplateCreator, onNavigateToYearlyTa
   const handleAddTask = async () => {
     // 一時的なIDを生成（APIレスポンス前に画面に表示するため）
     const tempId = `temp_${Date.now()}`;
-    const maxDisplayOrder = tasks.length > 0
-      ? Math.max(...tasks.map(t => t.displayOrder))
-      : 0;
+
+    // 編集中のタスクがある場合、その直下に同じ階層で追加
+    let insertIndex = tasks.length;
+    let parentId: string | null = null;
+    let level = 0;
+    let displayOrder: number;
+
+    if (editingTaskId) {
+      const editingIndex = tasks.findIndex(t => t.id === editingTaskId);
+      if (editingIndex !== -1) {
+        const editingTask = tasks[editingIndex];
+        parentId = editingTask.parentId ?? null;
+        level = editingTask.level ?? 0;
+
+        // 編集中のタスクとその子孫を全てスキップして挿入位置を決定
+        let nextIndex = editingIndex + 1;
+        while (nextIndex < tasks.length) {
+          const nextTask = tasks[nextIndex];
+          const nextLevel = nextTask.level ?? 0;
+          // 同じ階層以下に戻ったらそこが挿入位置
+          if (nextLevel <= level) {
+            break;
+          }
+          nextIndex++;
+        }
+        insertIndex = nextIndex;
+        displayOrder = insertIndex + 1;
+      } else {
+        displayOrder = tasks.length + 1;
+      }
+    } else {
+      displayOrder = tasks.length > 0
+        ? Math.max(...tasks.map(t => t.displayOrder)) + 1
+        : 1;
+    }
 
     // 即座にUIに追加（楽観的更新）
     const tempTask: TaskWithCompletions = {
@@ -152,21 +184,28 @@ export const CalendarPage = ({ onNavigateToTemplateCreator, onNavigateToYearlyTa
       name: '',
       year,
       month,
-      displayOrder: maxDisplayOrder + 1,
+      displayOrder,
       startDate: null,
       endDate: null,
       isCompleted: false,
-      parentId: null,
+      parentId,
       completions: {},
-      level: 0,
+      level,
     };
-    setTasks(prevTasks => [...prevTasks, tempTask]);
+
+    // 挿入位置にタスクを追加し、後続タスクのdisplayOrderを更新
+    setTasks(prevTasks => {
+      const newTasks = [...prevTasks];
+      newTasks.splice(insertIndex, 0, tempTask);
+      // displayOrderを再割り当て
+      return newTasks.map((t, i) => ({ ...t, displayOrder: i + 1 }));
+    });
     setEditingTaskId(tempId);
     setEditingTaskName('');
 
     // バックグラウンドでAPI呼び出し
     try {
-      const response = await taskApi.createTask('', year, month, maxDisplayOrder + 1);
+      const response = await taskApi.createTask('', year, month, displayOrder);
       const newTask = response.task;
 
       // 一時IDを実際のIDに置き換え、名前も取得
@@ -181,6 +220,11 @@ export const CalendarPage = ({ onNavigateToTemplateCreator, onNavigateToYearlyTa
 
       // 編集中のIDも更新
       setEditingTaskId(prevId => prevId === tempId ? newTask.id : prevId);
+
+      // parentIdがある場合は更新
+      if (parentId) {
+        await taskApi.updateTask(newTask.id, { parentId });
+      }
 
       // 一時タスクに名前が設定されていた場合、APIで保存
       if (savedName) {
