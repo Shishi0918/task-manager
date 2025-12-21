@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef, useMemo } from 'react';
-import { completionApi, taskApi, spotTaskApi, templateApi, yearlyTaskApi } from '../services/api';
+import { completionApi, taskApi, spotTaskApi, templateApi, yearlyTaskApi, weeklyTaskApi, type WeeklyTask } from '../services/api';
 import type { TaskWithCompletions, Stats } from '../types';
 import { TaskModal } from '../components/TaskModal';
 import { AccountMenu } from '../components/AccountMenu';
@@ -808,6 +808,14 @@ export const CalendarPage = ({ onNavigateToTemplateCreator, onNavigateToYearlyTa
 
     // 階層化モード
     if (currentDragMode === 'nest' && currentNestTarget) {
+      // 親タスクの情報を取得
+      const parentTask = tasks.find(t => t.id === currentNestTarget);
+      const parentStartDate = parentTask?.startDate ?? null;
+      const parentEndDate = parentTask?.endDate ?? null;
+
+      // 日付調整が必要なタスクを記録
+      const dateUpdates: Array<{ id: string; startDate: string | null; endDate: string | null }> = [];
+
       // ローカル状態を即座に更新（楽観的更新）
       setTasks(prevTasks => {
           const newTasks = [...prevTasks];
@@ -833,9 +841,48 @@ export const CalendarPage = ({ onNavigateToTemplateCreator, onNavigateToYearlyTa
           // 移動するグループを抽出
           const movedGroup = newTasks.splice(draggedIndex, 1 + descendantCount);
 
-          // レベルを更新
+          // レベルを更新し、日付を調整
           movedGroup.forEach(task => {
             task.level = (task.level ?? 0) + levelDiff;
+
+            // 日付調整ロジック
+            if (!parentStartDate) {
+              // 親に開始日がない場合、子の開始日・終了日を消す
+              if (task.startDate || task.endDate) {
+                dateUpdates.push({ id: task.id, startDate: null, endDate: null });
+                task.startDate = null;
+                task.endDate = null;
+              }
+            } else {
+              let newStartDate = task.startDate ?? null;
+              let newEndDate = task.endDate ?? null;
+              let needsUpdate = false;
+
+              // 子の開始日が親の開始日より前なら、親の開始日に合わせる
+              if (newStartDate && newStartDate < parentStartDate) {
+                newStartDate = parentStartDate;
+                needsUpdate = true;
+              }
+
+              // 子の開始日が親の終了日より後なら、開始日と終了日を親の終了日に合わせる
+              if (parentEndDate && newStartDate && newStartDate > parentEndDate) {
+                newStartDate = parentEndDate;
+                newEndDate = parentEndDate;
+                needsUpdate = true;
+              }
+
+              // 子の終了日が親の終了日より後なら、親の終了日に合わせる
+              if (parentEndDate && newEndDate && newEndDate > parentEndDate) {
+                newEndDate = parentEndDate;
+                needsUpdate = true;
+              }
+
+              if (needsUpdate) {
+                dateUpdates.push({ id: task.id, startDate: newStartDate, endDate: newEndDate });
+                task.startDate = newStartDate;
+                task.endDate = newEndDate;
+              }
+            }
           });
           movedGroup[0].parentId = currentNestTarget;
 
@@ -858,7 +905,18 @@ export const CalendarPage = ({ onNavigateToTemplateCreator, onNavigateToYearlyTa
 
       // APIをバックグラウンドで実行
       setDraggedTaskId(null);
-      taskApi.updateTask(draggedTaskId, { parentId: currentNestTarget }).catch(err => {
+
+      // 親IDの更新と日付調整を並列で実行
+      const updatePromises: Promise<any>[] = [
+        taskApi.updateTask(draggedTaskId, { parentId: currentNestTarget })
+      ];
+      for (const update of dateUpdates) {
+        updatePromises.push(
+          taskApi.updateTask(update.id, { startDate: update.startDate, endDate: update.endDate })
+        );
+      }
+
+      Promise.all(updatePromises).catch(err => {
         setError(err instanceof Error ? err.message : '階層の変更に失敗しました');
         fetchData(); // エラー時はデータを再取得
       });
@@ -1155,10 +1213,11 @@ export const CalendarPage = ({ onNavigateToTemplateCreator, onNavigateToYearlyTa
       };
 
       // 並列でAPIを呼び出す
-      const [monthlyResult, yearlyResult, spotResult] = await Promise.all([
+      const [monthlyResult, yearlyResult, spotResult, weeklyResult] = await Promise.all([
         templateApi.getTemplateDetails(DEFAULT_TEMPLATE_NAME).catch(() => ({ tasks: [] as TemplateTask[] })),
         yearlyTaskApi.getAll().catch(() => ({ yearlyTasks: [] as YearlyTaskItem[] })),
         spotTaskApi.getByYearMonth(year, month),
+        weeklyTaskApi.getAll().catch(() => ({ weeklyTasks: [] as WeeklyTask[] })),
       ]);
 
       const monthlyTemplateTasks = monthlyResult.tasks;
@@ -1168,6 +1227,57 @@ export const CalendarPage = ({ onNavigateToTemplateCreator, onNavigateToYearlyTa
 
       // スポットタスクはAPIが既にフラットで返すのでそのまま使用（parentId保持）
       const spotTasks = spotResult.spotTasks || [];
+
+      // 週次タスクをフラット化
+      const weeklyTasks = flattenHierarchy(weeklyResult.weeklyTasks);
+
+      // 週次タスクを対象月の曜日に展開する
+      // dayOfWeek: 0=月, 1=火, 2=水, 3=木, 4=金, 5=土, 6=日
+      // JS Date.getDay(): 0=日, 1=月, 2=火, 3=水, 4=木, 5=金, 6=土
+      const getDatesForDayOfWeek = (dayOfWeek: number): number[] => {
+        const jsDayOfWeek = (dayOfWeek + 1) % 7; // 週次タスクの曜日をJS曜日に変換
+        const dates: number[] = [];
+        const daysInMonth = new Date(year, month, 0).getDate();
+
+        for (let day = 1; day <= daysInMonth; day++) {
+          const date = new Date(year, month - 1, day);
+          if (date.getDay() === jsDayOfWeek) {
+            dates.push(day);
+          }
+        }
+        return dates;
+      };
+
+      // 週次タスクを展開（各曜日の日付ごとにタスクを生成）
+      interface ExpandedWeeklyTask {
+        id: string;
+        name: string;
+        startDay: number;
+        endDay: number;
+        parentId: string | null;
+        originalTaskId: string;
+        dayOfWeek: number;
+      }
+
+      const expandedWeeklyTasks: ExpandedWeeklyTask[] = [];
+      for (const task of weeklyTasks) {
+        if (task.schedules && task.schedules.length > 0) {
+          for (const schedule of task.schedules) {
+            const dates = getDatesForDayOfWeek(schedule.dayOfWeek);
+            for (const day of dates) {
+              expandedWeeklyTasks.push({
+                id: `${task.id}-${schedule.dayOfWeek}-${day}`,
+                name: task.name,
+                startDay: day,
+                endDay: day,
+                parentId: task.parentId ?? null,
+                originalTaskId: task.id,
+                dayOfWeek: schedule.dayOfWeek,
+              });
+            }
+          }
+        }
+      }
 
       // 現在の月に一致する年次タスク、または月未設定で子が対象月に含まれる親タスクをフィルタリング
       // Step 1: 対象月に一致するタスクのIDを収集
@@ -1191,14 +1301,14 @@ export const CalendarPage = ({ onNavigateToTemplateCreator, onNavigateToYearlyTa
         matchingMonthIds.has(task.id) || parentIdsToInclude.has(task.id)
       );
 
-      const totalTaskCount = monthlyTemplateTasks.length + matchingYearlyTasks.length + spotTasks.length;
+      const totalTaskCount = monthlyTemplateTasks.length + matchingYearlyTasks.length + spotTasks.length + expandedWeeklyTasks.length;
 
       if (totalTaskCount === 0) {
-        alert('貼り付けるタスクがありません。先に「月次タスク作成」「年次タスク作成」または「スポットタスク作成」画面でタスクを作成してください。');
+        alert('貼り付けるタスクがありません。先に「月次タスク作成」「年次タスク作成」「スポットタスク作成」または「週次タスク作成」画面でタスクを作成してください。');
         return;
       }
 
-      const message = `月次タスク（${monthlyTemplateTasks.length}件）+ 年次タスク（${matchingYearlyTasks.length}件）+ スポットタスク（${spotTasks.length}件）= 合計${totalTaskCount}件のタスクを追加しますか？`;
+      const message = `月次タスク（${monthlyTemplateTasks.length}件）+ 年次タスク（${matchingYearlyTasks.length}件）+ スポットタスク（${spotTasks.length}件）+ 週次タスク（${expandedWeeklyTasks.length}件）= 合計${totalTaskCount}件のタスクを追加しますか？`;
 
       if (!confirm(message)) {
         return;
@@ -1306,9 +1416,47 @@ export const CalendarPage = ({ onNavigateToTemplateCreator, onNavigateToYearlyTa
       const monthlyOrder = baseOrder;
       const yearlyOrder = baseOrder + monthlyTemplateTasks.length;
       const spotOrder = yearlyOrder + matchingYearlyTasks.length;
+      const weeklyOrder = spotOrder + spotTasks.length;
 
-      // 3種類のタスクを並列で作成
-      const [monthlyResults, yearlyResults, spotResults] = await Promise.all([
+      // 週次タスクを作成するヘルパー関数（階層なし、日付ごとに独立）
+      const createWeeklyTasks = async (
+        tasks: ExpandedWeeklyTask[],
+        startingOrder: number
+      ): Promise<TaskWithCompletions[]> => {
+        if (tasks.length === 0) return [];
+
+        const createPromises = tasks.map((task, i) => {
+          const startDate = `${year}-${String(month).padStart(2, '0')}-${String(task.startDay).padStart(2, '0')}`;
+          const endDate = `${year}-${String(month).padStart(2, '0')}-${String(task.endDay).padStart(2, '0')}`;
+          return taskApi.createTask(
+            task.name,
+            year,
+            month,
+            startingOrder + i,
+            startDate,
+            endDate
+          );
+        });
+
+        const createResults = await Promise.all(createPromises);
+
+        return createResults.map((result, i) => ({
+          id: result.task.id,
+          name: result.task.name,
+          year: result.task.year,
+          month: result.task.month,
+          displayOrder: result.task.displayOrder,
+          startDate: `${year}-${String(month).padStart(2, '0')}-${String(tasks[i].startDay).padStart(2, '0')}`,
+          endDate: `${year}-${String(month).padStart(2, '0')}-${String(tasks[i].endDay).padStart(2, '0')}`,
+          isCompleted: result.task.isCompleted ?? false,
+          parentId: null,
+          completions: {},
+          level: 0,
+        }));
+      };
+
+      // 4種類のタスクを並列で作成
+      const [monthlyResults, yearlyResults, spotResults, weeklyResults] = await Promise.all([
         monthlyTemplateTasks.length > 0
           ? createTasksWithHierarchy(monthlyTemplateTasks, monthlyOrder)
           : Promise.resolve([]),
@@ -1318,9 +1466,12 @@ export const CalendarPage = ({ onNavigateToTemplateCreator, onNavigateToYearlyTa
         spotTasks.length > 0
           ? createTasksWithHierarchy(spotTasks, spotOrder)
           : Promise.resolve([]),
+        expandedWeeklyTasks.length > 0
+          ? createWeeklyTasks(expandedWeeklyTasks, weeklyOrder)
+          : Promise.resolve([]),
       ]);
 
-      const newTasks = [...monthlyResults, ...yearlyResults, ...spotResults];
+      const newTasks = [...monthlyResults, ...yearlyResults, ...spotResults, ...weeklyResults];
 
       // 新規タスクをローカルステートに直接追加（リロード不要）
       setTasks(prevTasks => [...prevTasks, ...newTasks]);
@@ -1381,6 +1532,12 @@ export const CalendarPage = ({ onNavigateToTemplateCreator, onNavigateToYearlyTa
               </h1>
               <div className="flex gap-2">
                 <button
+                  onClick={onNavigateToWeeklyTaskCreator}
+                  className="px-4 py-2 bg-white/20 text-white rounded-md hover:bg-white/30 transition-colors text-sm font-medium"
+                >
+                  週次タスク作成
+                </button>
+                <button
                   onClick={onNavigateToTemplateCreator}
                   className="px-4 py-2 bg-white/20 text-white rounded-md hover:bg-white/30 transition-colors text-sm font-medium"
                 >
@@ -1397,12 +1554,6 @@ export const CalendarPage = ({ onNavigateToTemplateCreator, onNavigateToYearlyTa
                   className="px-4 py-2 bg-white/20 text-white rounded-md hover:bg-white/30 transition-colors text-sm font-medium"
                 >
                   スポットタスク作成
-                </button>
-                <button
-                  onClick={onNavigateToWeeklyTaskCreator}
-                  className="px-4 py-2 bg-white/20 text-white rounded-md hover:bg-white/30 transition-colors text-sm font-medium"
-                >
-                  週次タスク作成
                 </button>
               </div>
             </div>

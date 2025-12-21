@@ -509,6 +509,13 @@ export const WeeklyTaskCreatorPage = ({ onBack }: WeeklyTaskCreatorPageProps) =>
     };
 
     const sorted = sortHierarchically(tasks, (a, b) => {
+      // 曜日で比較（スケジュールがない場合は最後に）
+      const aDayOfWeek = a.schedules.length > 0 ? a.schedules[0].dayOfWeek : 99;
+      const bDayOfWeek = b.schedules.length > 0 ? b.schedules[0].dayOfWeek : 99;
+      if (aDayOfWeek !== bDayOfWeek) {
+        return aDayOfWeek - bDayOfWeek;
+      }
+      // 同じ曜日なら時間で比較
       const aTime = a.schedules.length > 0 ? a.schedules[0].startTime : '99:99';
       const bTime = b.schedules.length > 0 ? b.schedules[0].startTime : '99:99';
       return aTime.localeCompare(bTime);
