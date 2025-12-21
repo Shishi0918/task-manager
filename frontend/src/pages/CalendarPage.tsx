@@ -113,6 +113,9 @@ export const CalendarPage = ({ onNavigateToTemplateCreator, onNavigateToYearlyTa
     fetchData(!hasCachedData);
   }, [year, month, user?.id]);
 
+  // Enterキーで次のタスクを編集、または新規タスク追加するためのフラグ
+  const [shouldAddNewTask, setShouldAddNewTask] = useState(false);
+
   // Enterキーで次のタスクを編集するためのキーボードリスナー
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
@@ -122,17 +125,22 @@ export const CalendarPage = ({ onNavigateToTemplateCreator, onNavigateToYearlyTa
 
         // 最後に保存したタスクの次のタスクを見つける
         const lastSavedIndex = tasks.findIndex(t => t.id === lastSavedTaskId);
-        if (lastSavedIndex !== -1 && lastSavedIndex < tasks.length - 1) {
+        if (lastSavedIndex !== -1) {
           // 完了済みタスクはスキップして次の未完了タスクを探す
           let nextIndex = lastSavedIndex + 1;
           while (nextIndex < tasks.length && tasks[nextIndex].isCompleted) {
             nextIndex++;
           }
           if (nextIndex < tasks.length) {
+            // 次の未完了タスクがある場合は編集モードに入る
             const targetTask = tasks[nextIndex];
             setEditingTaskId(targetTask.id);
             setEditingTaskName(targetTask.name);
             setLastSavedTaskId(null);
+          } else {
+            // 下にタスクがない場合は新しいタスクを追加
+            setLastSavedTaskId(null);
+            setShouldAddNewTask(true);
           }
         } else {
           setLastSavedTaskId(null);
@@ -143,6 +151,14 @@ export const CalendarPage = ({ onNavigateToTemplateCreator, onNavigateToYearlyTa
     document.addEventListener('keydown', handleKeyDown);
     return () => document.removeEventListener('keydown', handleKeyDown);
   }, [editingTaskId, lastSavedTaskId, tasks]);
+
+  // 新規タスク追加のトリガー
+  useEffect(() => {
+    if (shouldAddNewTask) {
+      setShouldAddNewTask(false);
+      handleAddTask();
+    }
+  }, [shouldAddNewTask]);
 
   const handleAddTask = async () => {
     // 一時的なIDを生成（APIレスポンス前に画面に表示するため）
