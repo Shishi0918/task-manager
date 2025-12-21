@@ -14,7 +14,7 @@ interface YearlyTask {
 }
 
 // APIの階層構造をフラットな配列に変換
-const flattenTasks = (tasks: ApiYearlyTask[], level = 0): YearlyTask[] => {
+const flattenTasks = (tasks: ApiYearlyTask[], level = 0, parentId: string | null = null): YearlyTask[] => {
   const result: YearlyTask[] = [];
   for (const task of tasks) {
     result.push({
@@ -24,11 +24,11 @@ const flattenTasks = (tasks: ApiYearlyTask[], level = 0): YearlyTask[] => {
       implementationMonth: task.implementationMonth,
       startDay: task.startDay,
       endDay: task.endDay,
-      parentId: task.parentId,
+      parentId: task.parentId ?? parentId, // APIからのparentIdを優先、なければ親から継承
       level,
     });
     if (task.children && task.children.length > 0) {
-      result.push(...flattenTasks(task.children, level + 1));
+      result.push(...flattenTasks(task.children, level + 1, task.id));
     }
   }
   return result;
@@ -303,13 +303,16 @@ export const YearlyTaskCreatorPage = ({ onBack }: YearlyTaskCreatorPageProps) =>
       taskList: YearlyTask[],
       compareFn: (a: YearlyTask, b: YearlyTask) => number
     ): YearlyTask[] => {
-      // ルートタスク（parentIdがnull/undefined）を取得
-      const rootTasks = taskList.filter(t => !t.parentId);
+      // タスクIDのセットを作成（存在確認用）
+      const taskIds = new Set(taskList.map(t => t.id));
 
-      // 子タスクをparentIdでグループ化
+      // ルートタスク（parentIdがnull/undefined、または親が存在しない孤立タスク）を取得
+      const rootTasks = taskList.filter(t => !t.parentId || !taskIds.has(t.parentId));
+
+      // 子タスクをparentIdでグループ化（親が存在する場合のみ）
       const childrenMap = new Map<string, YearlyTask[]>();
       taskList.forEach(t => {
-        if (t.parentId) {
+        if (t.parentId && taskIds.has(t.parentId)) {
           const children = childrenMap.get(t.parentId) || [];
           children.push(t);
           childrenMap.set(t.parentId, children);

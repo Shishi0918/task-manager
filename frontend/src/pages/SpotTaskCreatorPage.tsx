@@ -22,13 +22,18 @@ interface LocalSpotTask {
 // 階層タスクをフラット化する関数
 const flattenTasks = (
   tasks: LocalSpotTask[],
-  level: number = 0
+  level: number = 0,
+  parentId: string | null = null
 ): LocalSpotTask[] => {
   const result: LocalSpotTask[] = [];
   for (const task of tasks) {
-    result.push({ ...task, level });
+    result.push({
+      ...task,
+      level,
+      parentId: task.parentId ?? parentId, // APIからのparentIdを優先、なければ親から継承
+    });
     if (task.children && task.children.length > 0) {
-      result.push(...flattenTasks(task.children, level + 1));
+      result.push(...flattenTasks(task.children, level + 1, task.id));
     }
   }
   return result;
@@ -329,13 +334,16 @@ export const SpotTaskCreatorPage = ({ onBack }: SpotTaskCreatorPageProps) => {
       taskList: LocalSpotTask[],
       compareFn: (a: LocalSpotTask, b: LocalSpotTask) => number
     ): LocalSpotTask[] => {
-      // ルートタスク（parentIdがnull/undefined）を取得
-      const rootTasks = taskList.filter(t => !t.parentId);
+      // タスクIDのセットを作成（存在確認用）
+      const taskIds = new Set(taskList.map(t => t.id));
 
-      // 子タスクをparentIdでグループ化
+      // ルートタスク（parentIdがnull/undefined、または親が存在しない孤立タスク）を取得
+      const rootTasks = taskList.filter(t => !t.parentId || !taskIds.has(t.parentId));
+
+      // 子タスクをparentIdでグループ化（親が存在する場合のみ）
       const childrenMap = new Map<string, LocalSpotTask[]>();
       taskList.forEach(t => {
-        if (t.parentId) {
+        if (t.parentId && taskIds.has(t.parentId)) {
           const children = childrenMap.get(t.parentId) || [];
           children.push(t);
           childrenMap.set(t.parentId, children);

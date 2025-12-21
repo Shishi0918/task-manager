@@ -286,13 +286,16 @@ export const MonthlyTemplateCreatorPage = ({ onBack }: MonthlyTemplateCreatorPag
       taskList: MonthlyTemplateTask[],
       compareFn: (a: MonthlyTemplateTask, b: MonthlyTemplateTask) => number
     ): MonthlyTemplateTask[] => {
-      // ルートタスク（parentIdがnull/undefined）を取得
-      const rootTasks = taskList.filter(t => !t.parentId);
+      // タスクIDのセットを作成（存在確認用）
+      const taskIds = new Set(taskList.map(t => t.id));
 
-      // 子タスクをparentIdでグループ化
+      // ルートタスク（parentIdがnull/undefined、または親が存在しない孤立タスク）を取得
+      const rootTasks = taskList.filter(t => !t.parentId || !taskIds.has(t.parentId));
+
+      // 子タスクをparentIdでグループ化（親が存在する場合のみ）
       const childrenMap = new Map<string, MonthlyTemplateTask[]>();
       taskList.forEach(t => {
-        if (t.parentId) {
+        if (t.parentId && taskIds.has(t.parentId)) {
           const children = childrenMap.get(t.parentId) || [];
           children.push(t);
           childrenMap.set(t.parentId, children);
