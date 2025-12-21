@@ -37,6 +37,7 @@ model User {
   templates          TaskTemplate[]
   spotTasks          SpotTask[]
   yearlyTasks        YearlyTask[]
+  weeklyTasks        WeeklyTask[]
 
   @@map("users")
 }
@@ -192,4 +193,34 @@ model YearlyTask {
   children YearlyTask[] @relation("YearlyTaskHierarchy")
 
   @@map("yearly_tasks")
+}
+
+model WeeklyTask {
+  id           String   @id @default(uuid())
+  userId       String   @map("user_id")
+  name         String
+  displayOrder Int      @map("display_order")
+  parentId     String?  @map("parent_id")
+  createdAt    DateTime @default(now()) @map("created_at")
+  updatedAt    DateTime @updatedAt @map("updated_at")
+
+  user      User                 @relation(fields: [userId], references: [id], onDelete: Cascade)
+  parent    WeeklyTask?          @relation("WeeklyTaskHierarchy", fields: [parentId], references: [id], onDelete: SetNull)
+  children  WeeklyTask[]         @relation("WeeklyTaskHierarchy")
+  schedules WeeklyTaskSchedule[]
+
+  @@map("weekly_tasks")
+}
+
+model WeeklyTaskSchedule {
+  id           String @id @default(uuid())
+  weeklyTaskId String @map("weekly_task_id")
+  dayOfWeek    Int    @map("day_of_week") // 0=月, 1=火, 2=水, 3=木, 4=金, 5=土, 6=日
+  startTime    String @map("start_time")  // "HH:MM" format
+  endTime      String @map("end_time")    // "HH:MM" format
+
+  weeklyTask WeeklyTask @relation(fields: [weeklyTaskId], references: [id], onDelete: Cascade)
+
+  @@unique([weeklyTaskId, dayOfWeek])
+  @@map("weekly_task_schedules")
 }

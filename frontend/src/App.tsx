@@ -5,9 +5,10 @@ import { CalendarPage } from './pages/CalendarPage';
 import { MonthlyTemplateCreatorPage } from './pages/MonthlyTemplateCreatorPage';
 import { YearlyTaskCreatorPage } from './pages/YearlyTaskCreatorPage';
 import { SpotTaskCreatorPage } from './pages/SpotTaskCreatorPage';
+import { WeeklyTaskCreatorPage } from './pages/WeeklyTaskCreatorPage';
 import { OrganizationPage } from './pages/OrganizationPage';
 
-type Page = 'calendar' | 'templateCreator' | 'yearlyTaskCreator' | 'spotTaskCreator' | 'organization';
+type Page = 'calendar' | 'templateCreator' | 'yearlyTaskCreator' | 'spotTaskCreator' | 'weeklyTaskCreator' | 'organization';
 
 function AppContent() {
   const { user, loading } = useAuth();
@@ -68,11 +69,20 @@ function AppContent() {
     );
   }
 
+  if (currentPage === 'weeklyTaskCreator') {
+    return (
+      <WeeklyTaskCreatorPage
+        onBack={() => setCurrentPage('calendar')}
+      />
+    );
+  }
+
   return (
     <CalendarPage
       onNavigateToTemplateCreator={() => setCurrentPage('templateCreator')}
       onNavigateToYearlyTaskCreator={() => setCurrentPage('yearlyTaskCreator')}
       onNavigateToSpotTaskCreator={() => setCurrentPage('spotTaskCreator')}
+      onNavigateToWeeklyTaskCreator={() => setCurrentPage('weeklyTaskCreator')}
       onNavigateToOrganization={() => setCurrentPage('organization')}
     />
   );

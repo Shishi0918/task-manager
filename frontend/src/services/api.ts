@@ -490,3 +490,78 @@ export const yearlyTaskApi = {
     return handleResponse<{ message: string; count: number; yearlyTasks: YearlyTask[] }>(response);
   },
 };
+
+// WeeklyTask types
+export interface WeeklyTaskSchedule {
+  dayOfWeek: number; // 0=月, 1=火, 2=水, 3=木, 4=金, 5=土, 6=日
+  startTime: string; // "HH:MM"
+  endTime: string;   // "HH:MM"
+}
+
+export interface WeeklyTask {
+  id: string;
+  name: string;
+  displayOrder: number;
+  parentId?: string | null;
+  children?: WeeklyTask[];
+  schedules?: WeeklyTaskSchedule[];
+  level?: number;
+}
+
+// WeeklyTask API
+export const weeklyTaskApi = {
+  getAll: async (): Promise<{ weeklyTasks: WeeklyTask[] }> => {
+    const response = await fetch(`${API_URL}/api/weekly-tasks`, {
+      headers: getAuthHeaders(),
+    });
+    return handleResponse<{ weeklyTasks: WeeklyTask[] }>(response);
+  },
+
+  updateSchedule: async (
+    taskId: string,
+    schedule: WeeklyTaskSchedule
+  ): Promise<{ schedule: WeeklyTaskSchedule }> => {
+    const response = await fetch(`${API_URL}/api/weekly-tasks/${taskId}/schedule`, {
+      method: 'PUT',
+      headers: getAuthHeaders(),
+      body: JSON.stringify(schedule),
+    });
+    return handleResponse<{ schedule: WeeklyTaskSchedule }>(response);
+  },
+
+  deleteSchedule: async (
+    taskId: string,
+    dayOfWeek: number
+  ): Promise<{ message: string }> => {
+    const response = await fetch(`${API_URL}/api/weekly-tasks/${taskId}/schedule/${dayOfWeek}`, {
+      method: 'DELETE',
+      headers: getAuthHeaders(),
+    });
+    return handleResponse<{ message: string }>(response);
+  },
+
+  bulkSave: async (
+    tasks: Array<{
+      name: string;
+      displayOrder: number;
+      parentIndex?: number | null;
+      schedules?: WeeklyTaskSchedule[];
+    }>
+  ): Promise<{ message: string; count: number }> => {
+    const response = await fetch(`${API_URL}/api/weekly-tasks/bulk-save`, {
+      method: 'POST',
+      headers: getAuthHeaders(),
+      body: JSON.stringify({ tasks }),
+    });
+    return handleResponse<{ message: string; count: number }>(response);
+  },
+
+  bulkDelete: async (ids: string[]): Promise<{ message: string; count: number }> => {
+    const response = await fetch(`${API_URL}/api/weekly-tasks/bulk-delete`, {
+      method: 'POST',
+      headers: getAuthHeaders(),
+      body: JSON.stringify({ ids }),
+    });
+    return handleResponse<{ message: string; count: number }>(response);
+  },
+};
