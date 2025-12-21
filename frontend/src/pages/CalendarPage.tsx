@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from 'react';
-import { completionApi, taskApi, spotTaskApi } from '../services/api';
+import { completionApi, taskApi, spotTaskApi, templateApi, yearlyTaskApi } from '../services/api';
 import type { TaskWithCompletions, Stats } from '../types';
 import { TaskModal } from '../components/TaskModal';
 import { AccountMenu } from '../components/AccountMenu';
@@ -998,35 +998,58 @@ export const CalendarPage = ({ onNavigateToTemplateCreator, onNavigateToYearlyTa
 
   const handleApplyTemplate = async () => {
     try {
-      // localStorageから月次テンプレートと年次タスクを取得（ユーザー固有）
-      const savedMonthlyTemplate = user?.id ? localStorage.getItem(`monthlyTemplate_${user.id}`) : null;
-      const savedYearlyTasks = user?.id ? localStorage.getItem(`yearlyTasks_${user.id}`) : null;
+      // APIから月次テンプレート、年次タスク、スポットタスクを取得
+      const DEFAULT_TEMPLATE_NAME = '__default_monthly__';
 
-      interface MonthlyTemplateTask {
+      interface TemplateTask {
         id: string;
         name: string;
         displayOrder: number;
         startDay: number | null;
         endDay: number | null;
+        parentId: string | null;
       }
 
-      interface YearlyTask {
+      interface YearlyTaskItem {
         id: string;
         name: string;
         displayOrder: number;
         implementationMonth: number | null;
         startDay: number | null;
         endDay: number | null;
+        parentId?: string | null;
       }
 
-      const monthlyTemplateTasks: MonthlyTemplateTask[] = savedMonthlyTemplate ? JSON.parse(savedMonthlyTemplate) : [];
-      const yearlyTasks: YearlyTask[] = savedYearlyTasks ? JSON.parse(savedYearlyTasks) : [];
+      // 階層データをフラット化するヘルパー関数
+      const flattenHierarchy = <T extends { id: string; parentId?: string | null; children?: T[] }>(
+        items: T[],
+        parentId: string | null = null
+      ): (T & { parentId: string | null })[] => {
+        const result: (T & { parentId: string | null })[] = [];
+        for (const item of items) {
+          const { children, ...rest } = item as T & { children?: T[] };
+          result.push({ ...rest, parentId } as T & { parentId: string | null });
+          if (children && children.length > 0) {
+            result.push(...flattenHierarchy(children, item.id));
+          }
+        }
+        return result;
+      };
+
+      // 並列でAPIを呼び出す
+      const [monthlyResult, yearlyResult, spotResult] = await Promise.all([
+        templateApi.getTemplateDetails(DEFAULT_TEMPLATE_NAME).catch(() => ({ tasks: [] as TemplateTask[] })),
+        yearlyTaskApi.getAll().catch(() => ({ yearlyTasks: [] as YearlyTaskItem[] })),
+        spotTaskApi.getByYearMonth(year, month),
+      ]);
+
+      const monthlyTemplateTasks = monthlyResult.tasks;
+      // 年次タスクとスポットタスクはフラット化する
+      const yearlyTasks = flattenHierarchy(yearlyResult.yearlyTasks);
+      const spotTasks = flattenHierarchy(spotResult.spotTasks);
 
       // 現在の月に一致する年次タスクをフィルタリング
       const matchingYearlyTasks = yearlyTasks.filter((task) => task.implementationMonth === month);
-
-      // APIからスポットタスクを取得（年月でフィルタリング）
-      const { spotTasks } = await spotTaskApi.getByYearMonth(year, month);
 
       const totalTaskCount = monthlyTemplateTasks.length + matchingYearlyTasks.length + spotTasks.length;
 
@@ -1049,85 +1072,83 @@ export const CalendarPage = ({ onNavigateToTemplateCreator, onNavigateToYearlyTa
       // その月の日数を取得
       const daysInCurrentMonth = new Date(year, month, 0).getDate();
 
-      // すべてのタスク作成リクエストを並列で実行
-      const createPromises: Promise<any>[] = [];
-      let orderIndex = 0;
+      // 階層を保持してタスクを作成するヘルパー関数
+      const createTasksWithHierarchy = async (
+        sourceTasks: Array<{ id: string; name: string; startDay: number | null; endDay: number | null; parentId?: string | null }>,
+        startingOrder: number
+      ): Promise<{ task: any }[]> => {
+        const results: { task: any }[] = [];
+        const oldIdToNewId = new Map<string, string>();
 
-      // 月次テンプレートから新しいタスクを作成
-      for (const templateTask of monthlyTemplateTasks) {
-        let startDateStr: string | undefined = undefined;
-        let endDateStr: string | undefined = undefined;
+        // displayOrder順にソートしてから処理（親が先に作成されるように）
+        const sortedTasks = [...sourceTasks];
 
-        if (templateTask.startDay !== null && templateTask.endDay !== null) {
-          const adjustedStartDay = Math.min(templateTask.startDay, daysInCurrentMonth);
-          const adjustedEndDay = Math.min(templateTask.endDay, daysInCurrentMonth);
-          startDateStr = `${year}-${String(month).padStart(2, '0')}-${String(adjustedStartDay).padStart(2, '0')}`;
-          endDateStr = `${year}-${String(month).padStart(2, '0')}-${String(adjustedEndDay).padStart(2, '0')}`;
+        for (let i = 0; i < sortedTasks.length; i++) {
+          const sourceTask = sortedTasks[i];
+          let startDateStr: string | undefined = undefined;
+          let endDateStr: string | undefined = undefined;
+
+          if (sourceTask.startDay !== null && sourceTask.endDay !== null) {
+            const adjustedStartDay = Math.min(sourceTask.startDay, daysInCurrentMonth);
+            const adjustedEndDay = Math.min(sourceTask.endDay, daysInCurrentMonth);
+            startDateStr = `${year}-${String(month).padStart(2, '0')}-${String(adjustedStartDay).padStart(2, '0')}`;
+            endDateStr = `${year}-${String(month).padStart(2, '0')}-${String(adjustedEndDay).padStart(2, '0')}`;
+          }
+
+          // タスクを作成
+          const result = await taskApi.createTask(
+            sourceTask.name,
+            year,
+            month,
+            startingOrder + i,
+            startDateStr,
+            endDateStr
+          );
+
+          // 旧IDと新IDのマッピングを保存
+          oldIdToNewId.set(sourceTask.id, result.task.id);
+
+          // 親タスクがある場合、親IDを更新
+          if (sourceTask.parentId && oldIdToNewId.has(sourceTask.parentId)) {
+            const newParentId = oldIdToNewId.get(sourceTask.parentId)!;
+            await taskApi.updateTask(result.task.id, { parentId: newParentId });
+            result.task.parentId = newParentId;
+          }
+
+          results.push(result);
         }
 
-        createPromises.push(
-          taskApi.createTask(templateTask.name, year, month, maxDisplayOrder + orderIndex + 1, startDateStr, endDateStr)
-        );
-        orderIndex++;
+        return results;
+      };
+
+      // 各タスクソースを順番に処理（階層を維持するため）
+      let currentOrder = maxDisplayOrder + 1;
+      const allResults: { task: any }[] = [];
+
+      // 月次テンプレートタスクを作成
+      if (monthlyTemplateTasks.length > 0) {
+        const monthlyResults = await createTasksWithHierarchy(monthlyTemplateTasks, currentOrder);
+        allResults.push(...monthlyResults);
+        currentOrder += monthlyTemplateTasks.length;
       }
 
-      // 年次タスクを月次タスクとして追加
-      for (const yearlyTask of matchingYearlyTasks) {
-        let startDateStr: string | undefined = undefined;
-        let endDateStr: string | undefined = undefined;
-
-        if (yearlyTask.startDay !== null && yearlyTask.endDay !== null) {
-          const adjustedStartDay = Math.min(yearlyTask.startDay, daysInCurrentMonth);
-          const adjustedEndDay = Math.min(yearlyTask.endDay, daysInCurrentMonth);
-          startDateStr = `${year}-${String(month).padStart(2, '0')}-${String(adjustedStartDay).padStart(2, '0')}`;
-          endDateStr = `${year}-${String(month).padStart(2, '0')}-${String(adjustedEndDay).padStart(2, '0')}`;
-        }
-
-        createPromises.push(
-          taskApi.createTask(yearlyTask.name, year, month, maxDisplayOrder + orderIndex + 1, startDateStr, endDateStr)
-        );
-        orderIndex++;
+      // 年次タスクを作成
+      if (matchingYearlyTasks.length > 0) {
+        const yearlyResults = await createTasksWithHierarchy(matchingYearlyTasks, currentOrder);
+        allResults.push(...yearlyResults);
+        currentOrder += matchingYearlyTasks.length;
       }
 
-      // スポットタスクを月次タスクとして追加
-      for (const spotTask of spotTasks) {
-        let startDateStr: string | undefined = undefined;
-        let endDateStr: string | undefined = undefined;
-
-        if (spotTask.startDay !== null && spotTask.endDay !== null) {
-          const adjustedStartDay = Math.min(spotTask.startDay, daysInCurrentMonth);
-          const adjustedEndDay = Math.min(spotTask.endDay, daysInCurrentMonth);
-          startDateStr = `${year}-${String(month).padStart(2, '0')}-${String(adjustedStartDay).padStart(2, '0')}`;
-          endDateStr = `${year}-${String(month).padStart(2, '0')}-${String(adjustedEndDay).padStart(2, '0')}`;
-        }
-
-        createPromises.push(
-          taskApi.createTask(spotTask.name, year, month, maxDisplayOrder + orderIndex + 1, startDateStr, endDateStr)
-        );
-        orderIndex++;
+      // スポットタスクを作成
+      if (spotTasks.length > 0) {
+        const spotResults = await createTasksWithHierarchy(spotTasks, currentOrder);
+        allResults.push(...spotResults);
       }
 
-      // 並列でタスク作成を実行
-      const results = await Promise.all(createPromises);
+      // データを再取得して階層を正しく表示
+      await fetchData();
 
-      // レスポンスからタスクを取得してローカル状態に追加
-      const newTasks: TaskWithCompletions[] = results.map(response => ({
-        id: response.task.id,
-        name: response.task.name,
-        year: response.task.year,
-        month: response.task.month,
-        displayOrder: response.task.displayOrder,
-        startDate: response.task.startDate,
-        endDate: response.task.endDate,
-        isCompleted: response.task.isCompleted,
-        parentId: response.task.parentId,
-        completions: {},
-        level: 0,
-      }));
-
-      setTasks(prevTasks => [...prevTasks, ...newTasks]);
-
-      alert(`タスクを追加しました（月次: ${monthlyTemplateTasks.length}件、年次: ${matchingYearlyTasks.length}件、スポット: ${spotTasks.length}件、合計: ${results.length}件）`);
+      alert(`タスクを追加しました（月次: ${monthlyTemplateTasks.length}件、年次: ${matchingYearlyTasks.length}件、スポット: ${spotTasks.length}件、合計: ${allResults.length}件）`);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'タスクの貼り付けに失敗しました');
       // エラー時はデータを再取得
