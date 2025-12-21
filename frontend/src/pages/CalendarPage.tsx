@@ -562,6 +562,25 @@ export const CalendarPage = ({ onNavigateToTemplateCreator, onNavigateToYearlyTa
     setLastSavedTaskId(null);
   };
 
+  const handleUpdateTaskTime = async (taskId: string, startTime: string | null, endTime: string | null) => {
+    // 一時IDの場合はスキップ
+    if (taskId.startsWith('temp_')) {
+      return;
+    }
+
+    // ローカル状態を即座に更新（楽観的更新）
+    setTasks(prevTasks =>
+      prevTasks.map(t =>
+        t.id === taskId ? { ...t, startTime, endTime } : t
+      )
+    );
+
+    // バックグラウンドでAPI呼び出し
+    taskApi.updateTask(taskId, { startTime, endTime }).catch(err => {
+      setError(err instanceof Error ? err.message : '時間の更新に失敗しました');
+    });
+  };
+
   const handleCellClick = async (taskId: string, day: number) => {
     // 他のタスクが日付選択中の場合は操作不可
     const selectingTaskId = Object.keys(selectedStartDays).find(
@@ -1524,6 +1543,8 @@ export const CalendarPage = ({ onNavigateToTemplateCreator, onNavigateToYearlyTa
         name: string;
         startDay: number;
         endDay: number;
+        startTime: string | null;
+        endTime: string | null;
         parentId: string | null;
         originalTaskId: string;
       }
@@ -1557,6 +1578,8 @@ export const CalendarPage = ({ onNavigateToTemplateCreator, onNavigateToYearlyTa
             name: task.name,
             startDay: day,
             endDay: day,
+            startTime: task.startTime ?? null,
+            endTime: task.endTime ?? null,
             parentId: task.parentId ?? null,
             originalTaskId: task.id,
           });
@@ -1756,7 +1779,9 @@ export const CalendarPage = ({ onNavigateToTemplateCreator, onNavigateToYearlyTa
             month,
             startingOrder + i,
             startDate,
-            endDate
+            endDate,
+            task.startTime,
+            task.endTime
           );
         });
 
@@ -1770,6 +1795,8 @@ export const CalendarPage = ({ onNavigateToTemplateCreator, onNavigateToYearlyTa
           displayOrder: result.task.displayOrder,
           startDate: `${year}-${String(month).padStart(2, '0')}-${String(tasks[i].startDay).padStart(2, '0')}`,
           endDate: `${year}-${String(month).padStart(2, '0')}-${String(tasks[i].endDay).padStart(2, '0')}`,
+          startTime: tasks[i].startTime,
+          endTime: tasks[i].endTime,
           isCompleted: result.task.isCompleted ?? false,
           parentId: null,
           completions: {},
@@ -2003,7 +2030,7 @@ export const CalendarPage = ({ onNavigateToTemplateCreator, onNavigateToYearlyTa
             <table ref={tableRef} className="border-collapse inline-block align-top">
               <thead className="sticky top-0 z-20">
                 <tr>
-                  <th className="border-r border-gray-300 px-2 py-3 bg-[#5B9BD5] text-white sticky left-0 z-30 w-[140px] min-w-[140px] font-medium">
+                  <th className="px-2 py-3 bg-[#5B9BD5] text-white sticky left-0 z-30 w-[140px] min-w-[140px] font-medium" style={{ boxShadow: '1px 0 0 0 #d1d5db' }}>
                     <div className="flex items-center gap-2">
                       <input
                         type="checkbox"
@@ -2014,6 +2041,12 @@ export const CalendarPage = ({ onNavigateToTemplateCreator, onNavigateToYearlyTa
                       />
                       <span className="text-sm">タスク</span>
                     </div>
+                  </th>
+                  <th className="px-2 py-2 text-xs font-medium bg-[#5B9BD5] text-white sticky left-[140px] z-30 w-[90px] min-w-[90px]" style={{ boxShadow: '1px 0 0 0 #d1d5db' }}>
+                    開始時間
+                  </th>
+                  <th className="px-2 py-2 text-xs font-medium bg-[#5B9BD5] text-white sticky left-[230px] z-30 w-[90px] min-w-[90px]" style={{ boxShadow: '1px 0 0 0 #d1d5db' }}>
+                    終了時間
                   </th>
                   {days.map((day) => {
                     const date = new Date(year, month - 1, day);
@@ -2084,9 +2117,10 @@ export const CalendarPage = ({ onNavigateToTemplateCreator, onNavigateToYearlyTa
                       onDragEnd={handleDragEnd}
                     >
                       <td
-                        className={`border-b border-r border-gray-200 px-1 py-1 sticky left-0 ${isNestTarget ? 'bg-green-50' : isUnnestMode ? 'bg-amber-50' : rowBgClass} z-10 w-[140px] min-w-[140px] ${textColorClass}`}
+                        className={`border-b border-gray-200 px-1 py-1 sticky left-0 ${isNestTarget ? 'bg-green-50' : isUnnestMode ? 'bg-amber-50' : rowBgClass} z-10 w-[140px] min-w-[140px] ${textColorClass}`}
                         style={{
-                          paddingLeft: `${8 + taskLevel * 16}px` // 階層に応じたインデント
+                          paddingLeft: `${8 + taskLevel * 16}px`, // 階層に応じたインデント
+                          boxShadow: '1px 0 0 0 #e5e7eb'
                         }}
                       >
                         <div className="flex items-center gap-1">
@@ -2136,6 +2170,76 @@ export const CalendarPage = ({ onNavigateToTemplateCreator, onNavigateToYearlyTa
                               </span>
                             </div>
                           )}
+                        </div>
+                      </td>
+                      <td className={`border-b border-r border-gray-200 px-1 py-1 text-center sticky left-[140px] z-10 w-[90px] min-w-[90px] ${rowBgClass}`}>
+                        <div className="flex items-center justify-center gap-0.5">
+                          <select
+                            value={task.startTime ? task.startTime.split(':')[0] : ''}
+                            onChange={(e) => {
+                              const hour = e.target.value;
+                              const minute = task.startTime ? task.startTime.split(':')[1] : '00';
+                              const newTime = hour ? `${hour}:${minute}` : null;
+                              handleUpdateTaskTime(task.id, newTime, task.endTime ?? null);
+                            }}
+                            className="w-10 px-0.5 py-0.5 text-xs border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-blue-500"
+                          >
+                            <option value="">--</option>
+                            {Array.from({ length: 24 }, (_, i) => i).map(h => (
+                              <option key={h} value={h.toString().padStart(2, '0')}>{h.toString().padStart(2, '0')}</option>
+                            ))}
+                          </select>
+                          <span className="text-xs">:</span>
+                          <select
+                            value={task.startTime ? task.startTime.split(':')[1] : ''}
+                            onChange={(e) => {
+                              const hour = task.startTime ? task.startTime.split(':')[0] : '09';
+                              const minute = e.target.value;
+                              const newTime = minute ? `${hour}:${minute}` : null;
+                              handleUpdateTaskTime(task.id, newTime, task.endTime ?? null);
+                            }}
+                            className="w-10 px-0.5 py-0.5 text-xs border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-blue-500"
+                          >
+                            <option value="">--</option>
+                            {[0, 5, 10, 15, 20, 25, 30, 35, 40, 45, 50, 55].map(m => (
+                              <option key={m} value={m.toString().padStart(2, '0')}>{m.toString().padStart(2, '0')}</option>
+                            ))}
+                          </select>
+                        </div>
+                      </td>
+                      <td className={`border-b border-r border-gray-200 px-1 py-1 text-center sticky left-[230px] z-10 w-[90px] min-w-[90px] ${rowBgClass}`}>
+                        <div className="flex items-center justify-center gap-0.5">
+                          <select
+                            value={task.endTime ? task.endTime.split(':')[0] : ''}
+                            onChange={(e) => {
+                              const hour = e.target.value;
+                              const minute = task.endTime ? task.endTime.split(':')[1] : '00';
+                              const newTime = hour ? `${hour}:${minute}` : null;
+                              handleUpdateTaskTime(task.id, task.startTime ?? null, newTime);
+                            }}
+                            className="w-10 px-0.5 py-0.5 text-xs border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-blue-500"
+                          >
+                            <option value="">--</option>
+                            {Array.from({ length: 24 }, (_, i) => i).map(h => (
+                              <option key={h} value={h.toString().padStart(2, '0')}>{h.toString().padStart(2, '0')}</option>
+                            ))}
+                          </select>
+                          <span className="text-xs">:</span>
+                          <select
+                            value={task.endTime ? task.endTime.split(':')[1] : ''}
+                            onChange={(e) => {
+                              const hour = task.endTime ? task.endTime.split(':')[0] : '10';
+                              const minute = e.target.value;
+                              const newTime = minute ? `${hour}:${minute}` : null;
+                              handleUpdateTaskTime(task.id, task.startTime ?? null, newTime);
+                            }}
+                            className="w-10 px-0.5 py-0.5 text-xs border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-blue-500"
+                          >
+                            <option value="">--</option>
+                            {[0, 5, 10, 15, 20, 25, 30, 35, 40, 45, 50, 55].map(m => (
+                              <option key={m} value={m.toString().padStart(2, '0')}>{m.toString().padStart(2, '0')}</option>
+                            ))}
+                          </select>
                         </div>
                       </td>
                       {days.map((day) => {
@@ -2200,7 +2304,7 @@ export const CalendarPage = ({ onNavigateToTemplateCreator, onNavigateToYearlyTa
                 {tasks.length === 0 && (
                   <tr>
                     <td
-                      colSpan={days.length + 2}
+                      colSpan={days.length + 3}
                       className="border border-gray-300 px-4 py-8 text-center text-gray-500"
                     >
                       タスクがありません。「タスク追加」ボタンから追加してください。
@@ -2216,7 +2320,7 @@ export const CalendarPage = ({ onNavigateToTemplateCreator, onNavigateToYearlyTa
                   className="cursor-pointer hover:bg-gray-50 transition-colors"
                 >
                   <td
-                    colSpan={days.length + 1}
+                    colSpan={days.length + 3}
                     className="border-b border-r border-gray-200 px-4 py-3 text-center text-gray-400 text-sm"
                   >
                     + クリックしてタスクを追加
@@ -2225,7 +2329,7 @@ export const CalendarPage = ({ onNavigateToTemplateCreator, onNavigateToYearlyTa
               </tbody>
             </table>
             {/* スクロール用のスペーサー */}
-            <div className="inline-block" style={{ width: 'calc(100% - 180px)', minWidth: '800px' }} />
+            <div className="inline-block" style={{ width: 'calc(100% - 320px)', minWidth: '800px' }} />
           </div>
         </div>
       </main>

@@ -11,6 +11,8 @@ interface MonthlyTemplateTask {
   displayOrder: number;
   startDay: number | null;
   endDay: number | null;
+  startTime: string | null;
+  endTime: string | null;
   parentId?: string | null;
   level?: number;
 }
@@ -66,6 +68,8 @@ export const MonthlyTemplateCreatorPage = ({ onBack }: MonthlyTemplateCreatorPag
           displayOrder: index + 1,
           startDay: task.startDay,
           endDay: task.endDay,
+          startTime: task.startTime,
+          endTime: task.endTime,
           parentIndex,
         };
       });
@@ -134,6 +138,8 @@ export const MonthlyTemplateCreatorPage = ({ onBack }: MonthlyTemplateCreatorPag
           displayOrder: task.displayOrder || index + 1,
           startDay: task.startDay,
           endDay: task.endDay,
+          startTime: task.startTime,
+          endTime: task.endTime,
           parentId: task.parentId,
           level: calculateLevel(task.id, tasksMap, levelCache),
         }));
@@ -209,6 +215,8 @@ export const MonthlyTemplateCreatorPage = ({ onBack }: MonthlyTemplateCreatorPag
       displayOrder: insertIndex + 1,
       startDay: null,
       endDay: null,
+      startTime: null,
+      endTime: null,
       parentId,
       level,
     };
@@ -865,6 +873,8 @@ export const MonthlyTemplateCreatorPage = ({ onBack }: MonthlyTemplateCreatorPag
             displayOrder: newTasks.length + 1,
             startDay: startDay && !isNaN(startDay) ? startDay : null,
             endDay: endDay && !isNaN(endDay) ? endDay : null,
+            startTime: null,
+            endTime: null,
             parentId,
             level,
           });
@@ -997,6 +1007,12 @@ export const MonthlyTemplateCreatorPage = ({ onBack }: MonthlyTemplateCreatorPag
                       <span className="text-sm">タスク</span>
                     </div>
                   </th>
+                  <th className="border-r border-gray-300 px-2 py-2 text-xs font-medium bg-[#5B9BD5] text-white sticky left-[140px] z-30 w-[90px] min-w-[90px]">
+                    開始時間
+                  </th>
+                  <th className="border-r border-gray-300 px-2 py-2 text-xs font-medium bg-[#5B9BD5] text-white sticky left-[230px] z-30 w-[90px] min-w-[90px]">
+                    終了時間
+                  </th>
                   {days.map((day) => (
                     <th
                       key={day}
@@ -1097,6 +1113,76 @@ export const MonthlyTemplateCreatorPage = ({ onBack }: MonthlyTemplateCreatorPag
                           )}
                         </div>
                       </td>
+                      <td className={`border-b border-r border-gray-200 px-1 py-1 text-center sticky left-[140px] z-10 w-[90px] min-w-[90px] ${isNestTarget ? 'bg-green-50' : isUnnestMode ? 'bg-amber-50' : 'bg-white'}`}>
+                        <div className="flex items-center justify-center gap-0.5">
+                          <select
+                            value={task.startTime ? task.startTime.split(':')[0] : ''}
+                            onChange={(e) => {
+                              const hour = e.target.value;
+                              const minute = task.startTime ? task.startTime.split(':')[1] : '00';
+                              const newTime = hour ? `${hour}:${minute}` : null;
+                              setTasks(tasks.map(t => t.id === task.id ? { ...t, startTime: newTime } : t));
+                            }}
+                            className="w-10 px-0.5 py-0.5 text-xs border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-blue-500"
+                          >
+                            <option value="">--</option>
+                            {Array.from({ length: 24 }, (_, i) => i).map(h => (
+                              <option key={h} value={h.toString().padStart(2, '0')}>{h.toString().padStart(2, '0')}</option>
+                            ))}
+                          </select>
+                          <span className="text-xs">:</span>
+                          <select
+                            value={task.startTime ? task.startTime.split(':')[1] : ''}
+                            onChange={(e) => {
+                              const hour = task.startTime ? task.startTime.split(':')[0] : '09';
+                              const minute = e.target.value;
+                              const newTime = minute ? `${hour}:${minute}` : null;
+                              setTasks(tasks.map(t => t.id === task.id ? { ...t, startTime: newTime } : t));
+                            }}
+                            className="w-10 px-0.5 py-0.5 text-xs border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-blue-500"
+                          >
+                            <option value="">--</option>
+                            {[0, 5, 10, 15, 20, 25, 30, 35, 40, 45, 50, 55].map(m => (
+                              <option key={m} value={m.toString().padStart(2, '0')}>{m.toString().padStart(2, '0')}</option>
+                            ))}
+                          </select>
+                        </div>
+                      </td>
+                      <td className={`border-b border-r border-gray-200 px-1 py-1 text-center sticky left-[230px] z-10 w-[90px] min-w-[90px] ${isNestTarget ? 'bg-green-50' : isUnnestMode ? 'bg-amber-50' : 'bg-white'}`}>
+                        <div className="flex items-center justify-center gap-0.5">
+                          <select
+                            value={task.endTime ? task.endTime.split(':')[0] : ''}
+                            onChange={(e) => {
+                              const hour = e.target.value;
+                              const minute = task.endTime ? task.endTime.split(':')[1] : '00';
+                              const newTime = hour ? `${hour}:${minute}` : null;
+                              setTasks(tasks.map(t => t.id === task.id ? { ...t, endTime: newTime } : t));
+                            }}
+                            className="w-10 px-0.5 py-0.5 text-xs border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-blue-500"
+                          >
+                            <option value="">--</option>
+                            {Array.from({ length: 24 }, (_, i) => i).map(h => (
+                              <option key={h} value={h.toString().padStart(2, '0')}>{h.toString().padStart(2, '0')}</option>
+                            ))}
+                          </select>
+                          <span className="text-xs">:</span>
+                          <select
+                            value={task.endTime ? task.endTime.split(':')[1] : ''}
+                            onChange={(e) => {
+                              const hour = task.endTime ? task.endTime.split(':')[0] : '10';
+                              const minute = e.target.value;
+                              const newTime = minute ? `${hour}:${minute}` : null;
+                              setTasks(tasks.map(t => t.id === task.id ? { ...t, endTime: newTime } : t));
+                            }}
+                            className="w-10 px-0.5 py-0.5 text-xs border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-blue-500"
+                          >
+                            <option value="">--</option>
+                            {[0, 5, 10, 15, 20, 25, 30, 35, 40, 45, 50, 55].map(m => (
+                              <option key={m} value={m.toString().padStart(2, '0')}>{m.toString().padStart(2, '0')}</option>
+                            ))}
+                          </select>
+                        </div>
+                      </td>
                       {days.map((day) => {
                         const inRange = isDateInRange(task, day);
                         const isStartDay = taskStartDay === day;
@@ -1149,7 +1235,7 @@ export const MonthlyTemplateCreatorPage = ({ onBack }: MonthlyTemplateCreatorPag
                 {tasks.length === 0 && (
                   <tr>
                     <td
-                      colSpan={days.length + 1}
+                      colSpan={days.length + 3}
                       className="border border-gray-300 px-4 py-8 text-center text-gray-500"
                     >
                       タスクがありません。「タスク追加」ボタンから追加してください。
@@ -1165,7 +1251,7 @@ export const MonthlyTemplateCreatorPage = ({ onBack }: MonthlyTemplateCreatorPag
                   className="cursor-pointer hover:bg-gray-50 transition-colors"
                 >
                   <td
-                    colSpan={days.length + 1}
+                    colSpan={days.length + 3}
                     className="border-b border-r border-gray-200 px-4 py-3 text-center text-gray-400 text-sm"
                   >
                     + クリックしてタスクを追加
@@ -1174,7 +1260,7 @@ export const MonthlyTemplateCreatorPage = ({ onBack }: MonthlyTemplateCreatorPag
               </tbody>
             </table>
             {/* 31日をタスク列の隣までスクロールするためのスペーサー */}
-            <div className="inline-block" style={{ width: 'calc(100% - 180px)', minWidth: '800px' }} />
+            <div className="inline-block" style={{ width: 'calc(100% - 320px)', minWidth: '800px' }} />
           </div>
         </div>
       </main>

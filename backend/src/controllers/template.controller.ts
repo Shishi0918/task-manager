@@ -35,6 +35,11 @@ const deleteTemplateSchema = z.object({
   templateName: z.string().min(1),
 });
 
+const timeStringSchema = z.string().transform((val) => {
+  if (!val || val === '') return null;
+  return val;
+}).pipe(z.string().regex(/^\d{2}:\d{2}$/).nullable());
+
 const saveMonthlyTemplateSchema = z.object({
   templateName: z.string().min(1),
   tasks: z.array(z.object({
@@ -42,6 +47,8 @@ const saveMonthlyTemplateSchema = z.object({
     displayOrder: z.number().int(),
     startDay: z.number().int().min(1).max(31).nullable(),
     endDay: z.number().int().min(1).max(31).nullable(),
+    startTime: timeStringSchema.optional().nullable(),
+    endTime: timeStringSchema.optional().nullable(),
     parentIndex: z.number().int().nullable().optional(),
   })),
 });
@@ -112,6 +119,8 @@ export const getTemplateDetails = async (
       displayOrder: template.displayOrder,
       startDay: template.startDay,
       endDay: template.endDay,
+      startTime: template.startTime,
+      endTime: template.endTime,
       parentId: template.parentId,
     }));
 
@@ -328,6 +337,8 @@ export const saveMonthlyTemplate = async (
           displayOrder: task.displayOrder,
           startDay: task.startDay,
           endDay: task.endDay,
+          startTime: task.startTime ?? null,
+          endTime: task.endTime ?? null,
           parentId,
         };
       });

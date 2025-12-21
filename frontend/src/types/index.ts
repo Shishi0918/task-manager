@@ -12,6 +12,8 @@ export interface Task {
   displayOrder: number;
   startDate?: string | null;
   endDate?: string | null;
+  startTime?: string | null;
+  endTime?: string | null;
   isActive: boolean;
   isCompleted: boolean;
   parentId?: string | null;
@@ -28,6 +30,8 @@ export interface TaskWithCompletions {
   displayOrder: number;
   startDate?: string | null;
   endDate?: string | null;
+  startTime?: string | null;
+  endTime?: string | null;
   isCompleted: boolean;
   parentId?: string | null;
   children?: TaskWithCompletions[];

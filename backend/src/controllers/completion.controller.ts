@@ -98,6 +98,8 @@ export const getCompletions = async (
         displayOrder: task.displayOrder,
         startDate: task.startDate ? task.startDate.toISOString().split('T')[0] : null,
         endDate: task.endDate ? task.endDate.toISOString().split('T')[0] : null,
+        startTime: task.startTime,
+        endTime: task.endTime,
         isCompleted: task.isCompleted,
         parentId: task.parentId,
         children: task.children ? task.children.map(transformTask) : [],

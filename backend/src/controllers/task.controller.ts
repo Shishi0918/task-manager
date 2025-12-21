@@ -3,6 +3,11 @@ import { z } from 'zod';
 import { prisma } from '../utils/prisma.js';
 import { AuthRequest } from '../types/index.js';
 
+const timeStringSchema = z.string().transform((val) => {
+  if (!val || val === '') return null;
+  return val;
+}).pipe(z.string().regex(/^\d{2}:\d{2}$/).nullable());
+
 const createTaskSchema = z.object({
   name: z.string(),
   year: z.number().int(),
@@ -10,6 +15,8 @@ const createTaskSchema = z.object({
   displayOrder: z.number().int().positive(),
   startDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
   endDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
+  startTime: timeStringSchema.optional().nullable(),
+  endTime: timeStringSchema.optional().nullable(),
   parentId: z.string().uuid().nullable().optional(),
 });
 
@@ -18,6 +25,8 @@ const updateTaskSchema = z.object({
   displayOrder: z.number().int().positive().optional(),
   startDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).nullable().optional(),
   endDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).nullable().optional(),
+  startTime: timeStringSchema.optional().nullable(),
+  endTime: timeStringSchema.optional().nullable(),
   isActive: z.boolean().optional(),
   isCompleted: z.boolean().optional(),
   parentId: z.string().uuid().nullable().optional(),
@@ -73,7 +82,7 @@ export const createTask = async (
   res: Response
 ): Promise<void> => {
   try {
-    const { name, year, month, displayOrder, startDate, endDate, parentId } = createTaskSchema.parse(req.body);
+    const { name, year, month, displayOrder, startDate, endDate, startTime, endTime, parentId } = createTaskSchema.parse(req.body);
 
     const task = await prisma.task.create({
       data: {
@@ -84,6 +93,8 @@ export const createTask = async (
         displayOrder,
         startDate: startDate ? new Date(startDate) : null,
         endDate: endDate ? new Date(endDate) : null,
+        startTime: startTime ?? null,
+        endTime: endTime ?? null,
         parentId: parentId || null,
       },
       include: {
@@ -108,7 +119,7 @@ export const updateTask = async (
 ): Promise<void> => {
   try {
     const { id } = req.params;
-    const { name, displayOrder, startDate, endDate, isActive, isCompleted, parentId } = updateTaskSchema.parse(req.body);
+    const { name, displayOrder, startDate, endDate, startTime, endTime, isActive, isCompleted, parentId } = updateTaskSchema.parse(req.body);
 
     // タスクの所有者確認
     const existingTask = await prisma.task.findFirst({
@@ -142,6 +153,8 @@ export const updateTask = async (
         ...(displayOrder !== undefined && { displayOrder }),
         ...(startDate !== undefined && { startDate: startDate ? new Date(startDate) : null }),
         ...(endDate !== undefined && { endDate: endDate ? new Date(endDate) : null }),
+        ...(startTime !== undefined && { startTime: startTime ?? null }),
+        ...(endTime !== undefined && { endTime: endTime ?? null }),
         ...(isActive !== undefined && { isActive }),
         ...(isCompleted !== undefined && { isCompleted }),
         ...(parentId !== undefined && { parentId: parentId }),

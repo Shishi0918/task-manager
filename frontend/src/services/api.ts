@@ -94,19 +94,21 @@ export const taskApi = {
     month: number,
     displayOrder: number,
     startDate?: string,
-    endDate?: string
+    endDate?: string,
+    startTime?: string | null,
+    endTime?: string | null
   ): Promise<{ task: Task }> => {
     const response = await fetch(`${API_URL}/api/tasks`, {
       method: 'POST',
       headers: getAuthHeaders(),
-      body: JSON.stringify({ name, year, month, displayOrder, startDate, endDate }),
+      body: JSON.stringify({ name, year, month, displayOrder, startDate, endDate, startTime, endTime }),
     });
     return handleResponse<{ task: Task }>(response);
   },
 
   updateTask: async (
     id: string,
-    data: Partial<Pick<Task, 'name' | 'displayOrder' | 'startDate' | 'endDate' | 'isActive' | 'isCompleted' | 'parentId'>>
+    data: Partial<Pick<Task, 'name' | 'displayOrder' | 'startDate' | 'endDate' | 'startTime' | 'endTime' | 'isActive' | 'isCompleted' | 'parentId'>>
   ): Promise<{ task: Task }> => {
     const response = await fetch(`${API_URL}/api/tasks/${id}`, {
       method: 'PUT',
@@ -231,6 +233,8 @@ export const templateApi = {
       displayOrder: number;
       startDay: number | null;
       endDay: number | null;
+      startTime?: string | null;
+      endTime?: string | null;
       parentIndex?: number | null;
     }>
   ): Promise<{ message: string; templateName: string; count: number }> => {
@@ -252,6 +256,8 @@ export const templateApi = {
       displayOrder: number;
       startDay: number | null;
       endDay: number | null;
+      startTime: string | null;
+      endTime: string | null;
       parentId: string | null;
     }>;
   }> => {
@@ -266,6 +272,8 @@ export const templateApi = {
         displayOrder: number;
         startDay: number | null;
         endDay: number | null;
+        startTime: string | null;
+        endTime: string | null;
         parentId: string | null;
       }>;
     }>(response);
