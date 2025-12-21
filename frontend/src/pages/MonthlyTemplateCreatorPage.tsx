@@ -50,12 +50,24 @@ export const MonthlyTemplateCreatorPage = ({ onBack }: MonthlyTemplateCreatorPag
     isSavingRef.current = true;
 
     try {
-      const data = tasksToSave.map((task, index) => ({
-        name: task.name,
-        displayOrder: index + 1,
-        startDay: task.startDay,
-        endDay: task.endDay,
-      }));
+      const data = tasksToSave.map((task, index) => {
+        // parentIdからparentIndexを計算
+        let parentIndex: number | null = null;
+        if (task.parentId) {
+          const parentIdx = tasksToSave.findIndex(t => t.id === task.parentId);
+          if (parentIdx !== -1 && parentIdx < index) {
+            parentIndex = parentIdx;
+          }
+        }
+
+        return {
+          name: task.name,
+          displayOrder: index + 1,
+          startDay: task.startDay,
+          endDay: task.endDay,
+          parentIndex,
+        };
+      });
 
       await templateApi.saveMonthlyTemplate(DEFAULT_TEMPLATE_NAME, data);
     } catch (err) {
@@ -94,12 +106,35 @@ export const MonthlyTemplateCreatorPage = ({ onBack }: MonthlyTemplateCreatorPag
     const loadTasks = async () => {
       try {
         const data = await templateApi.getTemplateDetails(DEFAULT_TEMPLATE_NAME);
+
+        // parentIdからlevelを計算するヘルパー関数
+        const calculateLevel = (taskId: string, tasksMap: Map<string, { parentId: string | null }>, cache: Map<string, number>): number => {
+          if (cache.has(taskId)) return cache.get(taskId)!;
+
+          const task = tasksMap.get(taskId);
+          if (!task || !task.parentId) {
+            cache.set(taskId, 0);
+            return 0;
+          }
+
+          const parentLevel = calculateLevel(task.parentId, tasksMap, cache);
+          const level = parentLevel + 1;
+          cache.set(taskId, level);
+          return level;
+        };
+
+        // タスクマップを作成
+        const tasksMap = new Map(data.tasks.map(t => [t.id, { parentId: t.parentId }]));
+        const levelCache = new Map<string, number>();
+
         const loadedTasks: MonthlyTemplateTask[] = data.tasks.map((task, index) => ({
-          id: crypto.randomUUID(),
+          id: task.id,
           name: task.name,
           displayOrder: task.displayOrder || index + 1,
           startDay: task.startDay,
           endDay: task.endDay,
+          parentId: task.parentId,
+          level: calculateLevel(task.id, tasksMap, levelCache),
         }));
         setTasks(loadedTasks);
       } catch (err) {

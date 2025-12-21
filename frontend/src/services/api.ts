@@ -231,6 +231,7 @@ export const templateApi = {
       displayOrder: number;
       startDay: number | null;
       endDay: number | null;
+      parentIndex?: number | null;
     }>
   ): Promise<{ message: string; templateName: string; count: number }> => {
     const response = await fetch(`${API_URL}/api/templates/save-monthly`, {
@@ -246,10 +247,12 @@ export const templateApi = {
   ): Promise<{
     templateName: string;
     tasks: Array<{
+      id: string;
       name: string;
       displayOrder: number;
       startDay: number | null;
       endDay: number | null;
+      parentId: string | null;
     }>;
   }> => {
     const response = await fetch(`${API_URL}/api/templates/${encodeURIComponent(templateName)}`, {
@@ -258,10 +261,12 @@ export const templateApi = {
     return handleResponse<{
       templateName: string;
       tasks: Array<{
+        id: string;
         name: string;
         displayOrder: number;
         startDay: number | null;
         endDay: number | null;
+        parentId: string | null;
       }>;
     }>(response);
   },

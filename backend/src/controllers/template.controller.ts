@@ -1,5 +1,6 @@
 import { Response } from 'express';
 import { z } from 'zod';
+import crypto from 'crypto';
 import { AuthRequest } from '../types/index.js';
 import { prisma } from '../utils/prisma.js';
 
@@ -41,6 +42,7 @@ const saveMonthlyTemplateSchema = z.object({
     displayOrder: z.number().int(),
     startDay: z.number().int().min(1).max(31).nullable(),
     endDay: z.number().int().min(1).max(31).nullable(),
+    parentIndex: z.number().int().nullable().optional(),
   })),
 });
 
@@ -105,10 +107,12 @@ export const getTemplateDetails = async (
     }
 
     const tasks = templates.map((template) => ({
+      id: template.id,
       name: template.taskName,
       displayOrder: template.displayOrder,
       startDay: template.startDay,
       endDay: template.endDay,
+      parentId: template.parentId,
     }));
 
     res.json({
@@ -290,35 +294,55 @@ export const saveMonthlyTemplate = async (
   try {
     const { templateName, tasks } = saveMonthlyTemplateSchema.parse(req.body);
 
-    // 同名の既存テンプレートを削除
-    await prisma.taskTemplate.deleteMany({
-      where: {
-        userId: req.userId!,
-        templateName,
-      },
-    });
+    // トランザクションで処理
+    const savedTemplates = await prisma.$transaction(async (tx) => {
+      // 同名の既存テンプレートを削除
+      await tx.taskTemplate.deleteMany({
+        where: {
+          userId: req.userId!,
+          templateName,
+        },
+      });
 
-    // tasksが空でない場合のみ新しいテンプレートを作成
-    if (tasks.length > 0) {
+      // tasksが空の場合は空配列を返す
+      if (tasks.length === 0) {
+        return [];
+      }
+
+      // 生成されるIDを事前に作成
+      const taskIds = tasks.map(() => crypto.randomUUID());
+
       // 新しいテンプレートを作成
-      const templates = tasks.map((task) => ({
-        userId: req.userId!,
-        templateName,
-        taskName: task.name,
-        displayOrder: task.displayOrder,
-        startDay: task.startDay,
-        endDay: task.endDay,
-      }));
+      const templates = tasks.map((task, index) => {
+        // parentIndexからparentIdを計算
+        let parentId: string | null = null;
+        if (task.parentIndex !== null && task.parentIndex !== undefined && task.parentIndex >= 0 && task.parentIndex < index) {
+          parentId = taskIds[task.parentIndex];
+        }
 
-      await prisma.taskTemplate.createMany({
+        return {
+          id: taskIds[index],
+          userId: req.userId!,
+          templateName,
+          taskName: task.name,
+          displayOrder: task.displayOrder,
+          startDay: task.startDay,
+          endDay: task.endDay,
+          parentId,
+        };
+      });
+
+      await tx.taskTemplate.createMany({
         data: templates,
       });
-    }
+
+      return templates;
+    });
 
     res.json({
       message: 'Monthly template saved successfully',
       templateName,
-      count: tasks.length,
+      count: savedTemplates.length,
     });
   } catch (error) {
     if (error instanceof z.ZodError) {
