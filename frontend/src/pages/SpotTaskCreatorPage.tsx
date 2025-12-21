@@ -1045,8 +1045,8 @@ export const SpotTaskCreatorPage = ({ onBack }: SpotTaskCreatorPageProps) => {
             </label>
           </div>
 
-          <div className="overflow-x-auto rounded-lg border border-gray-200">
-            <table ref={tableRef} className="min-w-full border-collapse">
+          <div className="overflow-x-auto rounded-lg border border-gray-200 whitespace-nowrap">
+            <table ref={tableRef} className="border-collapse inline-block align-top">
               <thead>
                 <tr>
                   <th className="border-r border-gray-300 px-2 py-3 bg-[#5B9BD5] text-white sticky left-0 z-10 w-[140px] min-w-[140px] font-medium">
@@ -1070,7 +1070,7 @@ export const SpotTaskCreatorPage = ({ onBack }: SpotTaskCreatorPageProps) => {
                   {days.map((day) => (
                     <th
                       key={day}
-                      className="border-r border-gray-300 px-1 py-2 text-xs font-medium bg-[#5B9BD5] text-white"
+                      className="border-r border-gray-300 px-1 py-2 text-xs font-medium bg-[#5B9BD5] text-white w-[53px] min-w-[53px]"
                     >
                       <div className="font-semibold">{day}</div>
                     </th>
@@ -1256,7 +1256,7 @@ export const SpotTaskCreatorPage = ({ onBack }: SpotTaskCreatorPageProps) => {
                         return (
                           <td
                             key={day}
-                            className={`border-b border-r border-gray-200 px-0.5 py-1 text-center ${
+                            className={`border-b border-r border-gray-200 px-0.5 py-1 text-center w-[53px] min-w-[53px] ${
                               isCellDisabled ? 'cursor-not-allowed' : 'cursor-pointer'
                             }`}
                             onClick={() => !isCellDisabled && handleCellClick(task.id, day)}
@@ -1305,6 +1305,8 @@ export const SpotTaskCreatorPage = ({ onBack }: SpotTaskCreatorPageProps) => {
                 </tr>
               </tbody>
             </table>
+            {/* スクロール用のスペーサー */}
+            <div className="inline-block" style={{ width: 'calc(100% - 180px)', minWidth: '800px' }} />
           </div>
         </div>
       </main>

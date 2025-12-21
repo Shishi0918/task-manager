@@ -1094,8 +1094,8 @@ export const WeeklyTaskCreatorPage = ({ onBack }: WeeklyTaskCreatorPageProps) =>
             </label>
           </div>
 
-          <div className="overflow-x-auto rounded-lg border border-gray-200">
-            <table ref={tableRef} className="min-w-full border-collapse">
+          <div className="overflow-x-auto rounded-lg border border-gray-200 whitespace-nowrap">
+            <table ref={tableRef} className="border-collapse inline-block align-top">
               <thead>
                 <tr>
                   <th className="border-r border-gray-300 px-2 py-3 bg-[#5B9BD5] text-white sticky left-0 z-10 w-[200px] min-w-[200px] font-medium">
@@ -1259,6 +1259,8 @@ export const WeeklyTaskCreatorPage = ({ onBack }: WeeklyTaskCreatorPageProps) =>
                 </tr>
               </tbody>
             </table>
+            {/* スクロール用のスペーサー */}
+            <div className="inline-block" style={{ width: 'calc(100% - 240px)', minWidth: '800px' }} />
           </div>
         </div>
       </main>

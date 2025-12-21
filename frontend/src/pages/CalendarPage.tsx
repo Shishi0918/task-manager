@@ -1893,8 +1893,8 @@ export const CalendarPage = ({ onNavigateToTemplateCreator, onNavigateToYearlyTa
             </button>
           </div>
 
-          <div className="overflow-x-auto overflow-y-visible pb-4 rounded-lg border border-gray-200" style={{ scrollbarWidth: 'thin' }}>
-            <table ref={tableRef} className="min-w-full border-collapse">
+          <div className="overflow-x-auto overflow-y-visible pb-4 rounded-lg border border-gray-200 whitespace-nowrap" style={{ scrollbarWidth: 'thin' }}>
+            <table ref={tableRef} className="border-collapse inline-block align-top">
               <thead>
                 <tr>
                   <th className="border-r border-gray-300 px-2 py-3 bg-[#5B9BD5] text-white sticky left-0 z-10 w-[140px] min-w-[140px] font-medium">
@@ -1922,7 +1922,7 @@ export const CalendarPage = ({ onNavigateToTemplateCreator, onNavigateToYearlyTa
                     return (
                       <th
                         key={day}
-                        className={`border-r border-gray-200 px-1 py-2 text-xs font-medium ${isNonWorkday ? 'bg-gray-100' : 'bg-gray-50'} text-gray-700`}
+                        className={`border-r border-gray-200 px-1 py-2 text-xs font-medium w-[53px] min-w-[53px] ${isNonWorkday ? 'bg-gray-100' : 'bg-gray-50'} text-gray-700`}
                         title={holidayName || undefined}
                       >
                         <div className={`font-semibold ${isHoliday ? 'text-red-500' : ''}`}>{day}</div>
@@ -2065,7 +2065,7 @@ export const CalendarPage = ({ onNavigateToTemplateCreator, onNavigateToYearlyTa
                         return (
                           <td
                             key={day}
-                            className={`border-b border-r border-gray-200 px-0.5 py-1 text-center ${
+                            className={`border-b border-r border-gray-200 px-0.5 py-1 text-center w-[53px] min-w-[53px] ${
                               isNonWorkday ? 'bg-gray-100' : ''
                             } ${
                               isCellDisabled ? 'cursor-not-allowed' : 'cursor-pointer'
@@ -2118,6 +2118,8 @@ export const CalendarPage = ({ onNavigateToTemplateCreator, onNavigateToYearlyTa
                 </tr>
               </tbody>
             </table>
+            {/* スクロール用のスペーサー */}
+            <div className="inline-block" style={{ width: 'calc(100% - 180px)', minWidth: '800px' }} />
           </div>
         </div>
       </main>
