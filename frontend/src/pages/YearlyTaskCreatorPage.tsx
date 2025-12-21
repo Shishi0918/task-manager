@@ -165,23 +165,48 @@ export const YearlyTaskCreatorPage = ({ onBack }: YearlyTaskCreatorPageProps) =>
   }, [editingTaskId, lastSavedTaskId, tasks]);
 
   const handleAddTask = () => {
+    // 編集中のタスクがある場合、その直下に同じ階層で追加
+    let insertIndex = 0; // デフォルトは先頭
+    let parentId: string | null = null;
+    let level = 0;
+
+    if (editingTaskId) {
+      const editingIndex = tasks.findIndex(t => t.id === editingTaskId);
+      if (editingIndex !== -1) {
+        const editingTask = tasks[editingIndex];
+        parentId = editingTask.parentId ?? null;
+        level = editingTask.level ?? 0;
+
+        // 編集中のタスクとその子孫を全てスキップして挿入位置を決定
+        let nextIndex = editingIndex + 1;
+        while (nextIndex < tasks.length) {
+          const nextTask = tasks[nextIndex];
+          const nextLevel = nextTask.level ?? 0;
+          if (nextLevel <= level) {
+            break;
+          }
+          nextIndex++;
+        }
+        insertIndex = nextIndex;
+      }
+    }
+
     const newTask: YearlyTask = {
       id: crypto.randomUUID(),
       name: '',
-      displayOrder: tasks.length + 1,
+      displayOrder: insertIndex + 1,
       implementationMonth: null,
       startDay: null,
       endDay: null,
+      parentId,
+      level,
     };
 
-    // 既存のタスクのdisplayOrderをすべて+1する
-    const updatedTasks = tasks.map(t => ({
-      ...t,
-      displayOrder: t.displayOrder + 1,
-    }));
-
-    // 新規タスクをdisplayOrder=1で追加（一番上）
-    setTasks([{ ...newTask, displayOrder: 1 }, ...updatedTasks]);
+    // 挿入位置にタスクを追加し、displayOrderを再割り当て
+    const newTasks = [...tasks];
+    newTasks.splice(insertIndex, 0, newTask);
+    const reorderedTasks = newTasks.map((t, i) => ({ ...t, displayOrder: i + 1 }));
+    setTasks(reorderedTasks);
 
     // 追加後、そのタスクを編集モードにする
     setEditingTaskId(newTask.id);
@@ -871,7 +896,10 @@ export const YearlyTaskCreatorPage = ({ onBack }: YearlyTaskCreatorPageProps) =>
         <div className="bg-white shadow rounded-lg p-6 mb-6">
           <div className="mb-4 flex items-center gap-3">
             <button
-              onClick={handleAddTask}
+              onMouseDown={(e) => {
+                e.preventDefault();
+                handleAddTask();
+              }}
               className="px-4 py-2 bg-indigo-600 text-white rounded hover:bg-indigo-700"
             >
               + タスク追加
