@@ -354,6 +354,14 @@ export const CalendarPage = ({ onNavigateToTemplateCreator, onNavigateToYearlyTa
   };
 
   const handleCellClick = async (taskId: string, day: number) => {
+    // 他のタスクが日付選択中の場合は操作不可
+    const selectingTaskId = Object.keys(selectedStartDays).find(
+      id => selectedStartDays[id] !== null && selectedStartDays[id] !== undefined
+    );
+    if (selectingTaskId && selectingTaskId !== taskId) {
+      return; // 他のタスクが選択中なので無視
+    }
+
     const task = tasks.find(t => t.id === taskId);
     const currentStartDay = selectedStartDays[taskId];
 
@@ -1550,6 +1558,12 @@ export const CalendarPage = ({ onNavigateToTemplateCreator, onNavigateToYearlyTa
                   const taskHoverDay = hoverDays[task.id];
                   const isChecked = checkedTasks.has(task.id);
 
+                  // 他のタスクが日付選択中かどうか
+                  const selectingTaskId = Object.keys(selectedStartDays).find(
+                    id => selectedStartDays[id] !== null && selectedStartDays[id] !== undefined
+                  );
+                  const isOtherTaskSelecting = selectingTaskId && selectingTaskId !== task.id;
+
                   const isCompletedTask = task.isCompleted;
                   const rowBgClass = isCompletedTask ? 'bg-gray-100' : 'bg-white';
                   const textColorClass = isCompletedTask ? 'text-gray-400' : '';
@@ -1652,17 +1666,19 @@ export const CalendarPage = ({ onNavigateToTemplateCreator, onNavigateToYearlyTa
                         const isRangeStart = inRange && rangeStartDay === day;
                         const isRangeEnd = inRange && rangeEndDay === day;
 
+                        const isCellDisabled = isCompletedTask || isOtherTaskSelecting;
+
                         return (
                           <td
                             key={day}
                             className={`border-b border-r border-gray-200 px-0.5 py-1 text-center ${
                               isNonWorkday ? 'bg-gray-100' : ''
                             } ${
-                              isCompletedTask ? 'cursor-not-allowed' : 'cursor-pointer'
+                              isCellDisabled ? 'cursor-not-allowed' : 'cursor-pointer'
                             }`}
-                            onClick={() => !isCompletedTask && handleCellClick(task.id, day)}
-                            onMouseEnter={() => !isCompletedTask && setHoverDays({ ...hoverDays, [task.id]: day })}
-                            onMouseLeave={() => !isCompletedTask && setHoverDays({ ...hoverDays, [task.id]: null })}
+                            onClick={() => !isCellDisabled && handleCellClick(task.id, day)}
+                            onMouseEnter={() => !isCellDisabled && setHoverDays({ ...hoverDays, [task.id]: day })}
+                            onMouseLeave={() => !isCellDisabled && setHoverDays({ ...hoverDays, [task.id]: null })}
                           >
                             <div className={`h-5 ${
                               isCompletedTask ? 'bg-gray-50' : ''

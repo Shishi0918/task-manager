@@ -271,6 +271,14 @@ export const YearlyTaskCreatorPage = ({ onBack }: YearlyTaskCreatorPageProps) =>
   };
 
   const handleCellClick = (taskId: string, day: number) => {
+    // 他のタスクが日付選択中の場合は操作不可
+    const selectingTaskId = Object.keys(selectedStartDays).find(
+      id => selectedStartDays[id] !== null && selectedStartDays[id] !== undefined
+    );
+    if (selectingTaskId && selectingTaskId !== taskId) {
+      return; // 他のタスクが選択中なので無視
+    }
+
     const task = tasks.find(t => t.id === taskId);
     const currentStartDay = selectedStartDays[taskId];
 
@@ -1031,6 +1039,13 @@ export const YearlyTaskCreatorPage = ({ onBack }: YearlyTaskCreatorPageProps) =>
                   const taskStartDay = selectedStartDays[task.id];
                   const taskHoverDay = hoverDays[task.id];
                   const isChecked = checkedTasks.has(task.id);
+
+                  // 他のタスクが日付選択中かどうか
+                  const selectingTaskId = Object.keys(selectedStartDays).find(
+                    id => selectedStartDays[id] !== null && selectedStartDays[id] !== undefined
+                  );
+                  const isOtherTaskSelecting = selectingTaskId && selectingTaskId !== task.id;
+
                   const isDragging = draggedTaskId === task.id;
                   const isDragOver = dragOverTaskId === task.id;
                   const isLastRow = index === tasks.length - 1;
@@ -1152,10 +1167,12 @@ export const YearlyTaskCreatorPage = ({ onBack }: YearlyTaskCreatorPageProps) =>
                         return (
                           <td
                             key={day}
-                            className="border-b border-r border-gray-200 px-0.5 py-1 text-center cursor-pointer"
-                            onClick={() => handleCellClick(task.id, day)}
-                            onMouseEnter={() => setHoverDays({ ...hoverDays, [task.id]: day })}
-                            onMouseLeave={() => setHoverDays({ ...hoverDays, [task.id]: null })}
+                            className={`border-b border-r border-gray-200 px-0.5 py-1 text-center ${
+                              isOtherTaskSelecting ? 'cursor-not-allowed' : 'cursor-pointer'
+                            }`}
+                            onClick={() => !isOtherTaskSelecting && handleCellClick(task.id, day)}
+                            onMouseEnter={() => !isOtherTaskSelecting && setHoverDays({ ...hoverDays, [task.id]: day })}
+                            onMouseLeave={() => !isOtherTaskSelecting && setHoverDays({ ...hoverDays, [task.id]: null })}
                           >
                             <div className={`h-5 ${
                               isStartDay
