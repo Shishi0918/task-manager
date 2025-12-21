@@ -1101,25 +1101,29 @@ export const CalendarPage = ({ onNavigateToTemplateCreator, onNavigateToYearlyTa
       ): Promise<TaskWithCompletions[]> => {
         const sortedTasks = [...sourceTasks];
 
-        // Step 1: 全タスクを並列で作成（parentIdなし）
-        const createPromises = sortedTasks.map((sourceTask, i) => {
-          let startDateStr: string | undefined = undefined;
-          let endDateStr: string | undefined = undefined;
-
+        // Step 1: 日付を事前計算して保持
+        const computedDates: Array<{ startDate: string | null; endDate: string | null }> = sortedTasks.map((sourceTask) => {
           if (sourceTask.startDay !== null && sourceTask.endDay !== null) {
             const adjustedStartDay = Math.min(sourceTask.startDay, daysInCurrentMonth);
             const adjustedEndDay = Math.min(sourceTask.endDay, daysInCurrentMonth);
-            startDateStr = `${year}-${String(month).padStart(2, '0')}-${String(adjustedStartDay).padStart(2, '0')}`;
-            endDateStr = `${year}-${String(month).padStart(2, '0')}-${String(adjustedEndDay).padStart(2, '0')}`;
+            return {
+              startDate: `${year}-${String(month).padStart(2, '0')}-${String(adjustedStartDay).padStart(2, '0')}`,
+              endDate: `${year}-${String(month).padStart(2, '0')}-${String(adjustedEndDay).padStart(2, '0')}`,
+            };
           }
+          return { startDate: null, endDate: null };
+        });
 
+        // Step 2: 全タスクを並列で作成（parentIdなし）
+        const createPromises = sortedTasks.map((sourceTask, i) => {
+          const { startDate, endDate } = computedDates[i];
           return taskApi.createTask(
             sourceTask.name,
             year,
             month,
             startingOrder + i,
-            startDateStr,
-            endDateStr
+            startDate ?? undefined,
+            endDate ?? undefined
           );
         });
 
@@ -1131,7 +1135,7 @@ export const CalendarPage = ({ onNavigateToTemplateCreator, onNavigateToYearlyTa
           oldIdToNewId.set(sourceTask.id, createResults[i].task.id);
         });
 
-        // Step 2: 親タスクがあるものだけ並列でparentIdを更新
+        // Step 3: 親タスクがあるものだけ並列でparentIdを更新
         const updatePromises: Promise<any>[] = [];
         const parentIdMap = new Map<string, string>(); // newTaskId -> newParentId
 
@@ -1148,17 +1152,18 @@ export const CalendarPage = ({ onNavigateToTemplateCreator, onNavigateToYearlyTa
           await Promise.all(updatePromises);
         }
 
-        // Step 3: レベルを計算してTaskWithCompletions形式に変換
+        // Step 4: レベルを計算してTaskWithCompletions形式に変換
         const calculateLevel = (taskId: string): number => {
           const parentId = parentIdMap.get(taskId);
           if (!parentId) return 0;
           return calculateLevel(parentId) + 1;
         };
 
-        const results: TaskWithCompletions[] = createResults.map((result) => {
+        const results: TaskWithCompletions[] = createResults.map((result, i) => {
           const newTaskId = result.task.id;
           const newParentId = parentIdMap.get(newTaskId) ?? null;
           const level = calculateLevel(newTaskId);
+          const { startDate, endDate } = computedDates[i];
 
           return {
             id: newTaskId,
@@ -1166,8 +1171,8 @@ export const CalendarPage = ({ onNavigateToTemplateCreator, onNavigateToYearlyTa
             year: result.task.year,
             month: result.task.month,
             displayOrder: result.task.displayOrder,
-            startDate: result.task.startDate,
-            endDate: result.task.endDate,
+            startDate,
+            endDate,
             isCompleted: result.task.isCompleted ?? false,
             parentId: newParentId,
             completions: {},
