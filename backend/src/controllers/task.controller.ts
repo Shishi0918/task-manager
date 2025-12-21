@@ -249,7 +249,7 @@ export const carryForwardTasks = async (
     // 翌月の1日の日付文字列
     const nextMonthFirstDay = `${nextYear}-${String(nextMonth).padStart(2, '0')}-01`;
 
-    // 翌月にタスクを作成
+    // Step 1: 全タスクを作成（parentIdなし）
     const createPromises = incompleteTasks.map((task) =>
       prisma.task.create({
         data: {
@@ -266,7 +266,32 @@ export const carryForwardTasks = async (
       })
     );
 
-    await Promise.all(createPromises);
+    const createdTasks = await Promise.all(createPromises);
+
+    // Step 2: 旧IDから新IDへのマッピングを作成
+    const oldIdToNewId = new Map<string, string>();
+    incompleteTasks.forEach((task, index) => {
+      oldIdToNewId.set(task.id, createdTasks[index].id);
+    });
+
+    // Step 3: parentIdを持つタスクを更新（親も繰越対象の場合のみ）
+    const updatePromises: Promise<any>[] = [];
+    incompleteTasks.forEach((task, index) => {
+      if (task.parentId && oldIdToNewId.has(task.parentId)) {
+        const newTaskId = createdTasks[index].id;
+        const newParentId = oldIdToNewId.get(task.parentId)!;
+        updatePromises.push(
+          prisma.task.update({
+            where: { id: newTaskId },
+            data: { parentId: newParentId },
+          })
+        );
+      }
+    });
+
+    if (updatePromises.length > 0) {
+      await Promise.all(updatePromises);
+    }
 
     // 当月の未完了タスクを削除
     const taskIds = incompleteTasks.map((task) => task.id);

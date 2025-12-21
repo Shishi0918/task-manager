@@ -1271,7 +1271,6 @@ export const CalendarPage = ({ onNavigateToTemplateCreator, onNavigateToYearlyTa
       const result = await taskApi.carryForwardTasks(year, month);
 
       if (result.count > 0) {
-        alert(`${result.count}件のタスクを${result.nextYear}年${result.nextMonth}月に繰り越しました`);
         // 翌月に移動
         setYear(result.nextYear);
         setMonth(result.nextMonth);
