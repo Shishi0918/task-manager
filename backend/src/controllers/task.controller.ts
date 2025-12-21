@@ -8,6 +8,8 @@ const timeStringSchema = z.string().transform((val) => {
   return val;
 }).pipe(z.string().regex(/^\d{2}:\d{2}$/).nullable());
 
+const sourceTypeSchema = z.enum(['monthly', 'yearly', 'spot', 'weekly', 'daily']).nullable().optional();
+
 const createTaskSchema = z.object({
   name: z.string(),
   year: z.number().int(),
@@ -17,6 +19,7 @@ const createTaskSchema = z.object({
   endDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
   startTime: timeStringSchema.optional().nullable(),
   endTime: timeStringSchema.optional().nullable(),
+  sourceType: sourceTypeSchema,
   parentId: z.string().uuid().nullable().optional(),
 });
 
@@ -82,7 +85,7 @@ export const createTask = async (
   res: Response
 ): Promise<void> => {
   try {
-    const { name, year, month, displayOrder, startDate, endDate, startTime, endTime, parentId } = createTaskSchema.parse(req.body);
+    const { name, year, month, displayOrder, startDate, endDate, startTime, endTime, sourceType, parentId } = createTaskSchema.parse(req.body);
 
     const task = await prisma.task.create({
       data: {
@@ -95,6 +98,7 @@ export const createTask = async (
         endDate: endDate ? new Date(endDate) : null,
         startTime: startTime ?? null,
         endTime: endTime ?? null,
+        sourceType: sourceType ?? null,
         parentId: parentId || null,
       },
       include: {

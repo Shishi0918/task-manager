@@ -2,6 +2,7 @@ import type {
   AuthResponse,
   User,
   Task,
+  TaskSourceType,
   MonthlyData,
   Stats,
   Organization,
@@ -96,12 +97,13 @@ export const taskApi = {
     startDate?: string,
     endDate?: string,
     startTime?: string | null,
-    endTime?: string | null
+    endTime?: string | null,
+    sourceType?: TaskSourceType | null
   ): Promise<{ task: Task }> => {
     const response = await fetch(`${API_URL}/api/tasks`, {
       method: 'POST',
       headers: getAuthHeaders(),
-      body: JSON.stringify({ name, year, month, displayOrder, startDate, endDate, startTime, endTime }),
+      body: JSON.stringify({ name, year, month, displayOrder, startDate, endDate, startTime, endTime, sourceType }),
     });
     return handleResponse<{ task: Task }>(response);
   },

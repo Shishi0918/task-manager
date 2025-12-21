@@ -4,6 +4,8 @@ export interface User {
   username: string;
 }
 
+export type TaskSourceType = 'monthly' | 'yearly' | 'spot' | 'weekly' | 'daily';
+
 export interface Task {
   id: string;
   name: string;
@@ -14,6 +16,7 @@ export interface Task {
   endDate?: string | null;
   startTime?: string | null;
   endTime?: string | null;
+  sourceType?: TaskSourceType | null;
   isActive: boolean;
   isCompleted: boolean;
   parentId?: string | null;
@@ -32,6 +35,7 @@ export interface TaskWithCompletions {
   endDate?: string | null;
   startTime?: string | null;
   endTime?: string | null;
+  sourceType?: TaskSourceType | null;
   isCompleted: boolean;
   parentId?: string | null;
   children?: TaskWithCompletions[];

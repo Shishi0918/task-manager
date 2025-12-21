@@ -108,6 +108,7 @@ model Task {
   endDate      DateTime?        @db.Date @map("end_date")
   startTime    String?          @map("start_time")  // "HH:MM" format
   endTime      String?          @map("end_time")    // "HH:MM" format
+  sourceType   String?          @map("source_type") // "monthly", "yearly", "spot", "weekly", "daily"
   isActive     Boolean          @default(true) @map("is_active")
   isCompleted  Boolean          @default(false) @map("is_completed")
   parentId     String?          @map("parent_id")

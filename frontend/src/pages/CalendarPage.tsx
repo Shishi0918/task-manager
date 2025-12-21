@@ -1509,6 +1509,8 @@ export const CalendarPage = ({ onNavigateToTemplateCreator, onNavigateToYearlyTa
         name: string;
         startDay: number;
         endDay: number;
+        startTime: string | null;
+        endTime: string | null;
         parentId: string | null;
         originalTaskId: string;
         dayOfWeek: number;
@@ -1525,6 +1527,8 @@ export const CalendarPage = ({ onNavigateToTemplateCreator, onNavigateToYearlyTa
                 name: task.name,
                 startDay: day,
                 endDay: day,
+                startTime: schedule.startTime ?? null,
+                endTime: schedule.endTime ?? null,
                 parentId: task.parentId ?? null,
                 originalTaskId: task.id,
                 dayOfWeek: schedule.dayOfWeek,
@@ -1631,8 +1635,9 @@ export const CalendarPage = ({ onNavigateToTemplateCreator, onNavigateToYearlyTa
 
       // 階層を保持してタスクを作成するヘルパー関数（並列化版）
       const createTasksWithHierarchy = async (
-        sourceTasks: Array<{ id: string; name: string; startDay: number | null; endDay: number | null; parentId?: string | null }>,
-        startingOrder: number
+        sourceTasks: Array<{ id: string; name: string; startDay: number | null; endDay: number | null; startTime?: string | null; endTime?: string | null; parentId?: string | null }>,
+        startingOrder: number,
+        sourceType: 'monthly' | 'yearly' | 'spot'
       ): Promise<TaskWithCompletions[]> => {
         const sortedTasks = [...sourceTasks];
 
@@ -1658,7 +1663,10 @@ export const CalendarPage = ({ onNavigateToTemplateCreator, onNavigateToYearlyTa
             month,
             startingOrder + i,
             startDate ?? undefined,
-            endDate ?? undefined
+            endDate ?? undefined,
+            sourceTask.startTime ?? null,
+            sourceTask.endTime ?? null,
+            sourceType
           );
         });
 
@@ -1699,6 +1707,7 @@ export const CalendarPage = ({ onNavigateToTemplateCreator, onNavigateToYearlyTa
           const newParentId = parentIdMap.get(newTaskId) ?? null;
           const level = calculateLevel(newTaskId);
           const { startDate, endDate } = computedDates[i];
+          const sourceTask = sortedTasks[i];
 
           return {
             id: newTaskId,
@@ -1708,6 +1717,9 @@ export const CalendarPage = ({ onNavigateToTemplateCreator, onNavigateToYearlyTa
             displayOrder: result.task.displayOrder,
             startDate,
             endDate,
+            startTime: sourceTask.startTime ?? null,
+            endTime: sourceTask.endTime ?? null,
+            sourceType: sourceType,
             isCompleted: result.task.isCompleted ?? false,
             parentId: newParentId,
             completions: {},
@@ -1742,7 +1754,10 @@ export const CalendarPage = ({ onNavigateToTemplateCreator, onNavigateToYearlyTa
             month,
             startingOrder + i,
             startDate,
-            endDate
+            endDate,
+            task.startTime,
+            task.endTime,
+            'weekly'
           );
         });
 
@@ -1756,6 +1771,9 @@ export const CalendarPage = ({ onNavigateToTemplateCreator, onNavigateToYearlyTa
           displayOrder: result.task.displayOrder,
           startDate: `${year}-${String(month).padStart(2, '0')}-${String(tasks[i].startDay).padStart(2, '0')}`,
           endDate: `${year}-${String(month).padStart(2, '0')}-${String(tasks[i].endDay).padStart(2, '0')}`,
+          startTime: tasks[i].startTime,
+          endTime: tasks[i].endTime,
+          sourceType: 'weekly' as const,
           isCompleted: result.task.isCompleted ?? false,
           parentId: null,
           completions: {},
@@ -1781,7 +1799,8 @@ export const CalendarPage = ({ onNavigateToTemplateCreator, onNavigateToYearlyTa
             startDate,
             endDate,
             task.startTime,
-            task.endTime
+            task.endTime,
+            'daily'
           );
         });
 
@@ -1797,6 +1816,7 @@ export const CalendarPage = ({ onNavigateToTemplateCreator, onNavigateToYearlyTa
           endDate: `${year}-${String(month).padStart(2, '0')}-${String(tasks[i].endDay).padStart(2, '0')}`,
           startTime: tasks[i].startTime,
           endTime: tasks[i].endTime,
+          sourceType: 'daily' as const,
           isCompleted: result.task.isCompleted ?? false,
           parentId: null,
           completions: {},
@@ -1807,13 +1827,13 @@ export const CalendarPage = ({ onNavigateToTemplateCreator, onNavigateToYearlyTa
       // 5種類のタスクを並列で作成
       const [monthlyResults, yearlyResults, spotResults, weeklyResults, dailyResults] = await Promise.all([
         monthlyTemplateTasks.length > 0
-          ? createTasksWithHierarchy(monthlyTemplateTasks, monthlyOrder)
+          ? createTasksWithHierarchy(monthlyTemplateTasks, monthlyOrder, 'monthly')
           : Promise.resolve([]),
         matchingYearlyTasks.length > 0
-          ? createTasksWithHierarchy(matchingYearlyTasks, yearlyOrder)
+          ? createTasksWithHierarchy(matchingYearlyTasks, yearlyOrder, 'yearly')
           : Promise.resolve([]),
         spotTasks.length > 0
-          ? createTasksWithHierarchy(spotTasks, spotOrder)
+          ? createTasksWithHierarchy(spotTasks, spotOrder, 'spot')
           : Promise.resolve([]),
         expandedWeeklyTasks.length > 0
           ? createWeeklyTasks(expandedWeeklyTasks, weeklyOrder)
@@ -2165,14 +2185,14 @@ export const CalendarPage = ({ onNavigateToTemplateCreator, onNavigateToYearlyTa
                               onClick={() => handleStartEditTaskName(task.id, task.name)}
                               className="cursor-text min-h-[20px] flex items-center flex-1 min-w-0 overflow-hidden"
                             >
-                              <span className="truncate">
+                              <span className={`truncate ${task.sourceType === 'daily' ? 'text-green-600' : ''}`}>
                                 {task.name || <span className="text-gray-400">タスク名</span>}
                               </span>
                             </div>
                           )}
                         </div>
                       </td>
-                      <td className={`border-b border-r border-gray-200 px-1 py-1 text-center sticky left-[140px] z-10 w-[90px] min-w-[90px] ${rowBgClass}`}>
+                      <td className={`border-b border-gray-200 px-1 py-1 text-center sticky left-[140px] z-10 w-[90px] min-w-[90px] ${rowBgClass}`} style={{ boxShadow: '1px 0 0 0 #e5e7eb' }}>
                         <div className="flex items-center justify-center gap-0.5">
                           <select
                             value={task.startTime ? task.startTime.split(':')[0] : ''}
@@ -2207,7 +2227,7 @@ export const CalendarPage = ({ onNavigateToTemplateCreator, onNavigateToYearlyTa
                           </select>
                         </div>
                       </td>
-                      <td className={`border-b border-r border-gray-200 px-1 py-1 text-center sticky left-[230px] z-10 w-[90px] min-w-[90px] ${rowBgClass}`}>
+                      <td className={`border-b border-gray-200 px-1 py-1 text-center sticky left-[230px] z-10 w-[90px] min-w-[90px] ${rowBgClass}`} style={{ boxShadow: '1px 0 0 0 #e5e7eb' }}>
                         <div className="flex items-center justify-center gap-0.5">
                           <select
                             value={task.endTime ? task.endTime.split(':')[0] : ''}

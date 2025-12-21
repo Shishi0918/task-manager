@@ -995,7 +995,7 @@ export const MonthlyTemplateCreatorPage = ({ onBack }: MonthlyTemplateCreatorPag
             <table ref={tableRef} className="border-collapse inline-block align-top">
               <thead className="sticky top-0 z-20">
                 <tr>
-                  <th className="border-r border-gray-300 px-2 py-3 bg-[#5B9BD5] text-white sticky left-0 z-30 w-[140px] min-w-[140px] font-medium">
+                  <th className="px-2 py-3 bg-[#5B9BD5] text-white sticky left-0 z-30 w-[140px] min-w-[140px] font-medium" style={{ boxShadow: '1px 0 0 0 #d1d5db' }}>
                     <div className="flex items-center gap-2">
                       <input
                         type="checkbox"
@@ -1007,10 +1007,10 @@ export const MonthlyTemplateCreatorPage = ({ onBack }: MonthlyTemplateCreatorPag
                       <span className="text-sm">タスク</span>
                     </div>
                   </th>
-                  <th className="border-r border-gray-300 px-2 py-2 text-xs font-medium bg-[#5B9BD5] text-white sticky left-[140px] z-30 w-[90px] min-w-[90px]">
+                  <th className="px-2 py-2 text-xs font-medium bg-[#5B9BD5] text-white sticky left-[140px] z-30 w-[90px] min-w-[90px]" style={{ boxShadow: '1px 0 0 0 #d1d5db' }}>
                     開始時間
                   </th>
-                  <th className="border-r border-gray-300 px-2 py-2 text-xs font-medium bg-[#5B9BD5] text-white sticky left-[230px] z-30 w-[90px] min-w-[90px]">
+                  <th className="px-2 py-2 text-xs font-medium bg-[#5B9BD5] text-white sticky left-[230px] z-30 w-[90px] min-w-[90px]" style={{ boxShadow: '1px 0 0 0 #d1d5db' }}>
                     終了時間
                   </th>
                   {days.map((day) => (
@@ -1060,9 +1060,10 @@ export const MonthlyTemplateCreatorPage = ({ onBack }: MonthlyTemplateCreatorPag
                       onDragEnd={handleDragEnd}
                     >
                       <td
-                        className={`border-b border-r border-gray-200 px-1 py-1 sticky left-0 ${isNestTarget ? 'bg-green-50' : isUnnestMode ? 'bg-amber-50' : 'bg-white'} z-10 w-[140px] min-w-[140px]`}
+                        className={`border-b border-gray-200 px-1 py-1 sticky left-0 ${isNestTarget ? 'bg-green-50' : isUnnestMode ? 'bg-amber-50' : 'bg-white'} z-10 w-[140px] min-w-[140px]`}
                         style={{
-                          paddingLeft: `${8 + taskLevel * 16}px`
+                          paddingLeft: `${8 + taskLevel * 16}px`,
+                          boxShadow: '1px 0 0 0 #e5e7eb'
                         }}
                       >
                         <div className="flex items-center gap-1">
@@ -1113,7 +1114,7 @@ export const MonthlyTemplateCreatorPage = ({ onBack }: MonthlyTemplateCreatorPag
                           )}
                         </div>
                       </td>
-                      <td className={`border-b border-r border-gray-200 px-1 py-1 text-center sticky left-[140px] z-10 w-[90px] min-w-[90px] ${isNestTarget ? 'bg-green-50' : isUnnestMode ? 'bg-amber-50' : 'bg-white'}`}>
+                      <td className={`border-b border-gray-200 px-1 py-1 text-center sticky left-[140px] z-10 w-[90px] min-w-[90px] ${isNestTarget ? 'bg-green-50' : isUnnestMode ? 'bg-amber-50' : 'bg-white'}`} style={{ boxShadow: '1px 0 0 0 #e5e7eb' }}>
                         <div className="flex items-center justify-center gap-0.5">
                           <select
                             value={task.startTime ? task.startTime.split(':')[0] : ''}
@@ -1148,7 +1149,7 @@ export const MonthlyTemplateCreatorPage = ({ onBack }: MonthlyTemplateCreatorPag
                           </select>
                         </div>
                       </td>
-                      <td className={`border-b border-r border-gray-200 px-1 py-1 text-center sticky left-[230px] z-10 w-[90px] min-w-[90px] ${isNestTarget ? 'bg-green-50' : isUnnestMode ? 'bg-amber-50' : 'bg-white'}`}>
+                      <td className={`border-b border-gray-200 px-1 py-1 text-center sticky left-[230px] z-10 w-[90px] min-w-[90px] ${isNestTarget ? 'bg-green-50' : isUnnestMode ? 'bg-amber-50' : 'bg-white'}`} style={{ boxShadow: '1px 0 0 0 #e5e7eb' }}>
                         <div className="flex items-center justify-center gap-0.5">
                           <select
                             value={task.endTime ? task.endTime.split(':')[0] : ''}
