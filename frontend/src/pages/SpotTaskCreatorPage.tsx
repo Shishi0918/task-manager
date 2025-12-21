@@ -62,6 +62,7 @@ export const SpotTaskCreatorPage = ({ onBack }: SpotTaskCreatorPageProps) => {
   const [nestTargetTaskId, setNestTargetTaskId] = useState<string | null>(null);
   const [isInitialLoad, setIsInitialLoad] = useState(true);
   const tableRef = useRef<HTMLTableElement>(null);
+  const scrollContainerRef = useRef<HTMLDivElement>(null);
   const saveTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const currentYear = new Date().getFullYear();
@@ -458,6 +459,10 @@ export const SpotTaskCreatorPage = ({ onBack }: SpotTaskCreatorPageProps) => {
     setDraggedTaskId(taskId);
     e.dataTransfer.effectAllowed = 'move';
     e.dataTransfer.setData('text/plain', taskId);
+    // ドラッグ中はスクロールを無効化
+    if (scrollContainerRef.current) {
+      scrollContainerRef.current.style.overflowX = 'hidden';
+    }
   };
 
   const handleDragOver = (e: React.DragEvent) => {
@@ -813,6 +818,10 @@ export const SpotTaskCreatorPage = ({ onBack }: SpotTaskCreatorPageProps) => {
     setDragOverBottom(false);
     setDragMode('reorder');
     setNestTargetTaskId(null);
+    // ドラッグ終了時にスクロールを復元
+    if (scrollContainerRef.current) {
+      scrollContainerRef.current.style.overflowX = 'auto';
+    }
   };
 
   const handleExportCSV = () => {
@@ -1045,11 +1054,11 @@ export const SpotTaskCreatorPage = ({ onBack }: SpotTaskCreatorPageProps) => {
             </label>
           </div>
 
-          <div className="overflow-x-auto rounded-lg border border-gray-200 whitespace-nowrap">
+          <div ref={scrollContainerRef} className="overflow-x-auto overflow-y-auto rounded-lg border border-gray-200 whitespace-nowrap" style={{ maxHeight: 'calc(100vh - 220px)' }}>
             <table ref={tableRef} className="border-collapse inline-block align-top">
-              <thead>
+              <thead className="sticky top-0 z-20">
                 <tr>
-                  <th className="border-r border-gray-300 px-2 py-3 bg-[#5B9BD5] text-white sticky left-0 z-10 w-[140px] min-w-[140px] font-medium">
+                  <th className="border-r border-gray-300 px-2 py-3 bg-[#5B9BD5] text-white sticky left-0 z-30 w-[140px] min-w-[140px] font-medium">
                     <div className="flex items-center gap-2">
                       <input
                         type="checkbox"
@@ -1061,10 +1070,10 @@ export const SpotTaskCreatorPage = ({ onBack }: SpotTaskCreatorPageProps) => {
                       <span className="text-sm">タスク</span>
                     </div>
                   </th>
-                  <th className="border-r border-gray-300 px-2 py-3 bg-[#5B9BD5] text-white sticky left-[140px] z-10 w-[70px] min-w-[70px] font-medium text-sm">
+                  <th className="border-r border-gray-300 px-2 py-3 bg-[#5B9BD5] text-white sticky left-[140px] z-30 w-[70px] min-w-[70px] font-medium text-sm">
                     実施年
                   </th>
-                  <th className="border-r border-gray-300 px-2 py-3 bg-[#5B9BD5] text-white sticky left-[210px] z-10 w-[60px] min-w-[60px] font-medium text-sm">
+                  <th className="border-r border-gray-300 px-2 py-3 bg-[#5B9BD5] text-white sticky left-[210px] z-30 w-[60px] min-w-[60px] font-medium text-sm">
                     実施月
                   </th>
                   {days.map((day) => (

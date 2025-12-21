@@ -57,6 +57,7 @@ export const CalendarPage = ({ onNavigateToTemplateCreator, onNavigateToYearlyTa
   const [dragMode, setDragMode] = useState<'reorder' | 'nest' | 'unnest'>('reorder'); // ドラッグモード
   const [nestTargetTaskId, setNestTargetTaskId] = useState<string | null>(null); // 子にする親タスク
   const tableRef = useRef<HTMLTableElement>(null);
+  const scrollContainerRef = useRef<HTMLDivElement>(null);
 
   const daysInMonth = new Date(year, month, 0).getDate();
   const days = Array.from({ length: daysInMonth }, (_, i) => i + 1);
@@ -777,6 +778,10 @@ export const CalendarPage = ({ onNavigateToTemplateCreator, onNavigateToYearlyTa
     setDraggedTaskId(taskId);
     e.dataTransfer.effectAllowed = 'move';
     e.dataTransfer.setData('text/plain', taskId);
+    // ドラッグ中はスクロールを無効化
+    if (scrollContainerRef.current) {
+      scrollContainerRef.current.style.overflowX = 'hidden';
+    }
   };
 
   const handleDragOver = (e: React.DragEvent) => {
@@ -1267,6 +1272,10 @@ export const CalendarPage = ({ onNavigateToTemplateCreator, onNavigateToYearlyTa
     setDragOverBottom(false);
     setDragMode('reorder');
     setNestTargetTaskId(null);
+    // ドラッグ終了時にスクロールを復元
+    if (scrollContainerRef.current) {
+      scrollContainerRef.current.style.overflowX = 'auto';
+    }
   };
 
   const handleSortByStartDate = async () => {
@@ -1893,11 +1902,11 @@ export const CalendarPage = ({ onNavigateToTemplateCreator, onNavigateToYearlyTa
             </button>
           </div>
 
-          <div className="overflow-x-auto overflow-y-visible pb-4 rounded-lg border border-gray-200 whitespace-nowrap" style={{ scrollbarWidth: 'thin' }}>
+          <div ref={scrollContainerRef} className="overflow-x-auto overflow-y-auto rounded-lg border border-gray-200 whitespace-nowrap" style={{ maxHeight: 'calc(100vh - 220px)' }}>
             <table ref={tableRef} className="border-collapse inline-block align-top">
-              <thead>
+              <thead className="sticky top-0 z-20">
                 <tr>
-                  <th className="border-r border-gray-300 px-2 py-3 bg-[#5B9BD5] text-white sticky left-0 z-10 w-[140px] min-w-[140px] font-medium">
+                  <th className="border-r border-gray-300 px-2 py-3 bg-[#5B9BD5] text-white sticky left-0 z-30 w-[140px] min-w-[140px] font-medium">
                     <div className="flex items-center gap-2">
                       <input
                         type="checkbox"
@@ -1922,13 +1931,13 @@ export const CalendarPage = ({ onNavigateToTemplateCreator, onNavigateToYearlyTa
                     return (
                       <th
                         key={day}
-                        className={`border-r border-gray-200 px-1 py-2 text-xs font-medium w-[53px] min-w-[53px] ${isNonWorkday ? 'bg-gray-100' : 'bg-gray-50'} text-gray-700`}
+                        className={`border-r border-gray-200 px-1 py-2 text-xs font-medium w-[53px] min-w-[53px] ${isNonWorkday ? 'bg-[#6BA8D9]' : 'bg-[#5B9BD5]'} text-white`}
                         title={holidayName || undefined}
                       >
-                        <div className={`font-semibold ${isHoliday ? 'text-red-500' : ''}`}>{day}</div>
-                        <div className={`text-[10px] ${isSunday || isHoliday ? 'text-red-500' : isSaturday ? 'text-blue-500' : 'text-gray-400'}`}>{dayOfWeek}</div>
+                        <div className={`font-semibold ${isHoliday ? 'text-red-200' : ''}`}>{day}</div>
+                        <div className={`text-[10px] ${isSunday || isHoliday ? 'text-red-200' : isSaturday ? 'text-blue-200' : 'text-white/70'}`}>{dayOfWeek}</div>
                         {isHoliday && (
-                          <div className="text-[8px] text-red-500">祝日</div>
+                          <div className="text-[8px] text-red-200">祝</div>
                         )}
                       </th>
                     );

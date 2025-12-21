@@ -59,6 +59,7 @@ export const YearlyTaskCreatorPage = ({ onBack }: YearlyTaskCreatorPageProps) =>
   const [nestTargetTaskId, setNestTargetTaskId] = useState<string | null>(null);
   const [isInitialLoad, setIsInitialLoad] = useState(true);
   const tableRef = useRef<HTMLTableElement>(null);
+  const scrollContainerRef = useRef<HTMLDivElement>(null);
   const saveTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const isSavingRef = useRef(false);
 
@@ -444,6 +445,10 @@ export const YearlyTaskCreatorPage = ({ onBack }: YearlyTaskCreatorPageProps) =>
     setDraggedTaskId(taskId);
     e.dataTransfer.effectAllowed = 'move';
     e.dataTransfer.setData('text/plain', taskId);
+    // ドラッグ中はスクロールを無効化
+    if (scrollContainerRef.current) {
+      scrollContainerRef.current.style.overflowX = 'hidden';
+    }
   };
 
   const handleDragOver = (e: React.DragEvent) => {
@@ -771,6 +776,10 @@ export const YearlyTaskCreatorPage = ({ onBack }: YearlyTaskCreatorPageProps) =>
     setDragOverBottom(false);
     setDragMode('reorder');
     setNestTargetTaskId(null);
+    // ドラッグ終了時にスクロールを復元
+    if (scrollContainerRef.current) {
+      scrollContainerRef.current.style.overflowX = 'auto';
+    }
   };
 
   const handleExportCSV = () => {
@@ -1005,11 +1014,11 @@ export const YearlyTaskCreatorPage = ({ onBack }: YearlyTaskCreatorPageProps) =>
             </label>
           </div>
 
-          <div className="overflow-x-auto rounded-lg border border-gray-200 whitespace-nowrap">
+          <div ref={scrollContainerRef} className="overflow-x-auto overflow-y-auto rounded-lg border border-gray-200 whitespace-nowrap" style={{ maxHeight: 'calc(100vh - 220px)' }}>
             <table ref={tableRef} className="border-collapse inline-block align-top">
-              <thead>
+              <thead className="sticky top-0 z-20">
                 <tr>
-                  <th className="border-r border-gray-300 px-2 py-3 bg-[#5B9BD5] text-white sticky left-0 z-10 w-[140px] min-w-[140px] font-medium">
+                  <th className="border-r border-gray-300 px-2 py-3 bg-[#5B9BD5] text-white sticky left-0 z-30 w-[140px] min-w-[140px] font-medium">
                     <div className="flex items-center gap-2">
                       <input
                         type="checkbox"
@@ -1021,7 +1030,7 @@ export const YearlyTaskCreatorPage = ({ onBack }: YearlyTaskCreatorPageProps) =>
                       <span className="text-sm">タスク</span>
                     </div>
                   </th>
-                  <th className="border-r border-gray-300 px-2 py-3 bg-[#5B9BD5] text-white sticky left-[140px] z-10 w-[60px] min-w-[60px] font-medium text-sm" style={{ writingMode: 'horizontal-tb', whiteSpace: 'nowrap' }}>
+                  <th className="border-r border-gray-300 px-2 py-3 bg-[#5B9BD5] text-white sticky left-[140px] z-30 w-[60px] min-w-[60px] font-medium text-sm" style={{ writingMode: 'horizontal-tb', whiteSpace: 'nowrap' }}>
                     実施月
                   </th>
                   {days.map((day) => (
