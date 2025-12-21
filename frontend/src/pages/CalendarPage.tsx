@@ -1404,7 +1404,10 @@ export const CalendarPage = ({ onNavigateToTemplateCreator, onNavigateToYearlyTa
 
           <div className="mb-4 flex items-center gap-3">
             <button
-              onClick={handleAddTask}
+              onMouseDown={(e) => {
+                e.preventDefault(); // blurを防ぐ
+                handleAddTask();
+              }}
               className="px-4 py-2 bg-indigo-600 text-white rounded hover:bg-indigo-700"
             >
               + タスク追加
