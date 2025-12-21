@@ -41,6 +41,8 @@ export const CalendarPage = ({ onNavigateToTemplateCreator, onNavigateToYearlyTa
   const [selectedStartDays, setSelectedStartDays] = useState<Record<string, number | null>>({});
   const [hoverDays, setHoverDays] = useState<Record<string, number | null>>({});
   const [checkedTasks, setCheckedTasks] = useState<Set<string>>(new Set());
+  const [lastCheckedTaskId, setLastCheckedTaskId] = useState<string | null>(null); // Shift+クリック用
+  const [copiedTasks, setCopiedTasks] = useState<TaskWithCompletions[]>([]); // コピーしたタスク
   const [undoStack, setUndoStack] = useState<Array<{
     type: 'period' | 'delete' | 'create' | 'bulkDelete';
     data: any;
@@ -160,6 +162,171 @@ export const CalendarPage = ({ onNavigateToTemplateCreator, onNavigateToYearlyTa
     }
   }, [shouldAddNewTask]);
 
+  // Ctrl+C / Ctrl+V でタスクをコピー＆ペースト
+  useEffect(() => {
+    const handleCopyPaste = async (e: KeyboardEvent) => {
+      // Ctrl+C: コピー（編集中は無視）
+      if ((e.ctrlKey || e.metaKey) && e.key === 'c' && !editingTaskId && checkedTasks.size > 0) {
+        e.preventDefault();
+        const tasksToCopy = tasks.filter(t => checkedTasks.has(t.id));
+        setCopiedTasks(tasksToCopy);
+        console.log(`${tasksToCopy.length}件のタスクをコピーしました`);
+      }
+
+      // Ctrl+V: ペースト
+      if ((e.ctrlKey || e.metaKey) && e.key === 'v' && copiedTasks.length > 0) {
+        e.preventDefault();
+
+        try {
+          const newTasks: TaskWithCompletions[] = [];
+
+          if (editingTaskId) {
+            // 編集中の場合: その行の上に挿入
+            const editingIndex = tasks.findIndex(t => t.id === editingTaskId);
+            if (editingIndex === -1) return;
+
+            const editingTask = tasks[editingIndex];
+            const insertBaseLevel = editingTask.level ?? 0;
+
+            // コピー元の最小レベルを取得（相対レベル計算用）
+            const minCopiedLevel = Math.min(...copiedTasks.map(t => t.level ?? 0));
+
+            // 挿入位置のdisplayOrderを計算
+            const baseDisplayOrder = editingIndex === 0
+              ? 1
+              : (tasks[editingIndex - 1]?.displayOrder ?? 0) + 1;
+
+            // 旧IDと新IDのマッピング
+            const oldIdToNewId = new Map<string, string>();
+            const copiedTaskIds = new Set(copiedTasks.map(t => t.id));
+
+            // コピーしたタスクを作成
+            for (let i = 0; i < copiedTasks.length; i++) {
+              const sourceTask = copiedTasks[i];
+              const relativeLevel = (sourceTask.level ?? 0) - minCopiedLevel;
+              const newLevel = insertBaseLevel + relativeLevel;
+
+              const result = await taskApi.createTask(
+                sourceTask.name,
+                year,
+                month,
+                baseDisplayOrder + i,
+                sourceTask.startDate ?? undefined,
+                sourceTask.endDate ?? undefined
+              );
+
+              oldIdToNewId.set(sourceTask.id, result.task.id);
+
+              // parentIdを決定
+              let newParentId: string | null = null;
+              if (sourceTask.parentId && copiedTaskIds.has(sourceTask.parentId)) {
+                // 親がコピー対象に含まれていれば、新しいIDに変換
+                newParentId = oldIdToNewId.get(sourceTask.parentId) ?? null;
+              } else if (relativeLevel === 0) {
+                // 最上位レベルのタスクは挿入位置の親を継承
+                newParentId = editingTask.parentId ?? null;
+              }
+
+              newTasks.push({
+                id: result.task.id,
+                name: result.task.name,
+                year: result.task.year,
+                month: result.task.month,
+                displayOrder: result.task.displayOrder,
+                startDate: sourceTask.startDate,
+                endDate: sourceTask.endDate,
+                isCompleted: false,
+                parentId: newParentId,
+                completions: {},
+                level: newLevel,
+              });
+
+              // 親IDをAPIで更新
+              if (newParentId) {
+                await taskApi.updateTask(result.task.id, { parentId: newParentId });
+              }
+            }
+
+            // ローカル状態を更新: 編集中のタスクの前に挿入
+            setTasks(prevTasks => {
+              const newTaskList = [...prevTasks];
+              newTaskList.splice(editingIndex, 0, ...newTasks);
+              return newTaskList;
+            });
+
+            // 編集状態を解除
+            setEditingTaskId(null);
+            setEditingTaskName('');
+
+            console.log(`${newTasks.length}件のタスクを挿入しました`);
+          } else {
+            // 編集中でない場合: 末尾に追加（階層関係を保持）
+            const maxDisplayOrder = tasks.length > 0
+              ? Math.max(...tasks.map(t => t.displayOrder))
+              : 0;
+
+            // コピー元の最小レベルを取得
+            const minCopiedLevel = Math.min(...copiedTasks.map(t => t.level ?? 0));
+
+            // 旧IDと新IDのマッピング
+            const oldIdToNewId = new Map<string, string>();
+            const copiedTaskIds = new Set(copiedTasks.map(t => t.id));
+
+            for (let i = 0; i < copiedTasks.length; i++) {
+              const sourceTask = copiedTasks[i];
+              const newDisplayOrder = maxDisplayOrder + 1 + i;
+              const relativeLevel = (sourceTask.level ?? 0) - minCopiedLevel;
+
+              const result = await taskApi.createTask(
+                sourceTask.name,
+                year,
+                month,
+                newDisplayOrder,
+                sourceTask.startDate ?? undefined,
+                sourceTask.endDate ?? undefined
+              );
+
+              oldIdToNewId.set(sourceTask.id, result.task.id);
+
+              // parentIdを決定
+              let newParentId: string | null = null;
+              if (sourceTask.parentId && copiedTaskIds.has(sourceTask.parentId)) {
+                newParentId = oldIdToNewId.get(sourceTask.parentId) ?? null;
+              }
+
+              newTasks.push({
+                id: result.task.id,
+                name: result.task.name,
+                year: result.task.year,
+                month: result.task.month,
+                displayOrder: result.task.displayOrder,
+                startDate: sourceTask.startDate,
+                endDate: sourceTask.endDate,
+                isCompleted: false,
+                parentId: newParentId,
+                completions: {},
+                level: relativeLevel,
+              });
+
+              // 親IDをAPIで更新
+              if (newParentId) {
+                await taskApi.updateTask(result.task.id, { parentId: newParentId });
+              }
+            }
+
+            setTasks(prevTasks => [...prevTasks, ...newTasks]);
+            console.log(`${newTasks.length}件のタスクを貼り付けました`);
+          }
+        } catch (err) {
+          setError(err instanceof Error ? err.message : 'タスクの貼り付けに失敗しました');
+        }
+      }
+    };
+
+    document.addEventListener('keydown', handleCopyPaste);
+    return () => document.removeEventListener('keydown', handleCopyPaste);
+  }, [editingTaskId, checkedTasks, copiedTasks, tasks, year, month]);
+
   const handleAddTask = async () => {
     // 一時的なIDを生成（APIレスポンス前に画面に表示するため）
     const tempId = `temp_${Date.now()}`;
@@ -273,16 +440,39 @@ export const CalendarPage = ({ onNavigateToTemplateCreator, onNavigateToYearlyTa
     }
   };
 
-  const handleToggleTaskCheck = (taskId: string) => {
-    setCheckedTasks((prev) => {
-      const newSet = new Set(prev);
-      if (newSet.has(taskId)) {
-        newSet.delete(taskId);
-      } else {
-        newSet.add(taskId);
+  const handleToggleTaskCheck = (taskId: string, event?: React.MouseEvent) => {
+    const isShiftClick = event?.shiftKey ?? false;
+
+    if (isShiftClick && lastCheckedTaskId) {
+      // Shift+クリック: 範囲選択
+      const lastIndex = tasks.findIndex(t => t.id === lastCheckedTaskId);
+      const currentIndex = tasks.findIndex(t => t.id === taskId);
+
+      if (lastIndex !== -1 && currentIndex !== -1) {
+        const startIndex = Math.min(lastIndex, currentIndex);
+        const endIndex = Math.max(lastIndex, currentIndex);
+
+        setCheckedTasks((prev) => {
+          const newSet = new Set(prev);
+          for (let i = startIndex; i <= endIndex; i++) {
+            newSet.add(tasks[i].id);
+          }
+          return newSet;
+        });
       }
-      return newSet;
-    });
+    } else {
+      // 通常クリック: トグル
+      setCheckedTasks((prev) => {
+        const newSet = new Set(prev);
+        if (newSet.has(taskId)) {
+          newSet.delete(taskId);
+        } else {
+          newSet.add(taskId);
+        }
+        return newSet;
+      });
+      setLastCheckedTaskId(taskId);
+    }
   };
 
   const handleToggleAllTasks = () => {
@@ -1802,7 +1992,8 @@ export const CalendarPage = ({ onNavigateToTemplateCreator, onNavigateToYearlyTa
                           <input
                             type="checkbox"
                             checked={isChecked}
-                            onChange={() => handleToggleTaskCheck(task.id)}
+                            onClick={(e) => handleToggleTaskCheck(task.id, e)}
+                            onChange={() => {}} // onClickで処理するためダミー
                             className="w-4 h-4 cursor-pointer flex-shrink-0"
                           />
                           {editingTaskId === task.id ? (
