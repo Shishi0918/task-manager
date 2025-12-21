@@ -388,8 +388,12 @@ export const CalendarPage = ({ onNavigateToTemplateCreator, onNavigateToYearlyTa
       setSelectedStartDays({ ...selectedStartDays, [taskId]: day });
     } else {
       // 2クリック目: 終了日を設定してAPI呼び出し
-      const startDay = Math.min(currentStartDay, day);
-      const endDay = Math.max(currentStartDay, day);
+      // 開始日より前の日付は選択不可
+      if (day < currentStartDay) {
+        return;
+      }
+      const startDay = currentStartDay;
+      const endDay = day;
 
       const startDateStr = `${year}-${String(month).padStart(2, '0')}-${String(startDay).padStart(2, '0')}`;
       const endDateStr = `${year}-${String(month).padStart(2, '0')}-${String(endDay).padStart(2, '0')}`;
@@ -1652,21 +1656,27 @@ export const CalendarPage = ({ onNavigateToTemplateCreator, onNavigateToYearlyTa
                         const inRange = isDateInRange(task, day);
                         const isStartDay = taskStartDay === day;
 
-                        // プレビュー範囲の判定（開始日選択後、マウスオーバー中）
+                        // 開始日選択中かどうか
+                        const isSelectingEndDay = taskStartDay !== null && taskStartDay !== undefined;
+                        // 開始日より前の日付かどうか（選択中のみ判定）
+                        const isBeforeStartDay = isSelectingEndDay && day < taskStartDay;
+
+                        // プレビュー範囲の判定（開始日選択後、マウスオーバー中、開始日以降のみ）
                         const isInPreviewRange =
-                          taskStartDay !== null &&
-                          taskStartDay !== undefined &&
+                          isSelectingEndDay &&
                           taskHoverDay !== null &&
                           taskHoverDay !== undefined &&
-                          day >= Math.min(taskStartDay, taskHoverDay) &&
-                          day <= Math.max(taskStartDay, taskHoverDay);
+                          taskHoverDay >= taskStartDay &&
+                          day >= taskStartDay &&
+                          day <= taskHoverDay;
 
                         const rangeStartDay = task.startDate ? parseInt(task.startDate.split('-')[2]) : null;
                         const rangeEndDay = task.endDate ? parseInt(task.endDate.split('-')[2]) : null;
                         const isRangeStart = inRange && rangeStartDay === day;
                         const isRangeEnd = inRange && rangeEndDay === day;
 
-                        const isCellDisabled = isCompletedTask || isOtherTaskSelecting;
+                        // セルの無効化条件
+                        const isCellDisabled = isCompletedTask || isOtherTaskSelecting || isBeforeStartDay;
 
                         return (
                           <td
@@ -1684,9 +1694,9 @@ export const CalendarPage = ({ onNavigateToTemplateCreator, onNavigateToYearlyTa
                               isCompletedTask ? 'bg-gray-50' : ''
                             } ${
                               !isCompletedTask && isStartDay
-                                ? 'bg-[#85c1e9] rounded'
+                                ? 'bg-[#85c1e9] rounded animate-blink-bar'
                                 : !isCompletedTask && isInPreviewRange
-                                ? 'bg-[#ebf5fb] rounded'
+                                ? 'bg-[#85c1e9] rounded animate-blink-bar'
                                 : !isCompletedTask && inRange
                                 ? `bg-[#85c1e9] ${isRangeStart ? 'rounded-l' : ''} ${isRangeEnd ? 'rounded-r' : ''}`
                                 : ''

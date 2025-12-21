@@ -356,8 +356,12 @@ export const SpotTaskCreatorPage = ({ onBack }: SpotTaskCreatorPageProps) => {
     if (currentStartDay === null || currentStartDay === undefined) {
       setSelectedStartDays({ ...selectedStartDays, [taskId]: day });
     } else {
-      const startDay = Math.min(currentStartDay, day);
-      const endDay = Math.max(currentStartDay, day);
+      // 開始日より前の日付は選択不可
+      if (day < currentStartDay) {
+        return;
+      }
+      const startDay = currentStartDay;
+      const endDay = day;
 
       setTasks(tasks.map(t =>
         t.id === taskId ? { ...t, startDay, endDay } : t
@@ -1228,32 +1232,42 @@ export const SpotTaskCreatorPage = ({ onBack }: SpotTaskCreatorPageProps) => {
                       {days.map((day) => {
                         const inRange = isDayInRange(task, day);
                         const isStartDay = taskStartDay === day;
+
+                        // 開始日選択中かどうか
+                        const isSelectingEndDay = taskStartDay !== null && taskStartDay !== undefined;
+                        // 開始日より前の日付かどうか（選択中のみ判定）
+                        const isBeforeStartDay = isSelectingEndDay && day < taskStartDay;
+
+                        // プレビュー範囲の判定（開始日選択後、マウスオーバー中、開始日以降のみ）
                         const isInPreviewRange =
-                          taskStartDay !== null &&
-                          taskStartDay !== undefined &&
+                          isSelectingEndDay &&
                           taskHoverDay !== null &&
                           taskHoverDay !== undefined &&
-                          day >= Math.min(taskStartDay, taskHoverDay) &&
-                          day <= Math.max(taskStartDay, taskHoverDay);
+                          taskHoverDay >= taskStartDay &&
+                          day >= taskStartDay &&
+                          day <= taskHoverDay;
 
                         const isRangeStart = inRange && task.startDay === day;
                         const isRangeEnd = inRange && task.endDay === day;
+
+                        // セルの無効化条件
+                        const isCellDisabled = isOtherTaskSelecting || isBeforeStartDay;
 
                         return (
                           <td
                             key={day}
                             className={`border-b border-r border-gray-200 px-0.5 py-1 text-center ${
-                              isOtherTaskSelecting ? 'cursor-not-allowed' : 'cursor-pointer'
+                              isCellDisabled ? 'cursor-not-allowed' : 'cursor-pointer'
                             }`}
-                            onClick={() => !isOtherTaskSelecting && handleCellClick(task.id, day)}
-                            onMouseEnter={() => !isOtherTaskSelecting && setHoverDays({ ...hoverDays, [task.id]: day })}
-                            onMouseLeave={() => !isOtherTaskSelecting && setHoverDays({ ...hoverDays, [task.id]: null })}
+                            onClick={() => !isCellDisabled && handleCellClick(task.id, day)}
+                            onMouseEnter={() => !isCellDisabled && setHoverDays({ ...hoverDays, [task.id]: day })}
+                            onMouseLeave={() => !isCellDisabled && setHoverDays({ ...hoverDays, [task.id]: null })}
                           >
                             <div className={`h-5 ${
                               isStartDay
-                                ? 'bg-[#85c1e9] rounded'
+                                ? 'bg-[#85c1e9] rounded animate-blink-bar'
                                 : isInPreviewRange
-                                ? 'bg-[#ebf5fb] rounded'
+                                ? 'bg-[#85c1e9] rounded animate-blink-bar'
                                 : inRange
                                 ? `bg-[#85c1e9] ${isRangeStart ? 'rounded-l' : ''} ${isRangeEnd ? 'rounded-r' : ''}`
                                 : ''

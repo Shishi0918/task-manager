@@ -1,1 +1,15 @@
 @import "tailwindcss";
+
+/* 日付範囲選択中の点滅アニメーション */
+@keyframes blink-bar {
+  0%, 100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.4;
+  }
+}
+
+.animate-blink-bar {
+  animation: blink-bar 1s ease-in-out infinite;
+}
