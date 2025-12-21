@@ -6,9 +6,10 @@ import { MonthlyTemplateCreatorPage } from './pages/MonthlyTemplateCreatorPage';
 import { YearlyTaskCreatorPage } from './pages/YearlyTaskCreatorPage';
 import { SpotTaskCreatorPage } from './pages/SpotTaskCreatorPage';
 import { WeeklyTaskCreatorPage } from './pages/WeeklyTaskCreatorPage';
+import { DailyTemplateCreatorPage } from './pages/DailyTemplateCreatorPage';
 import { OrganizationPage } from './pages/OrganizationPage';
 
-type Page = 'calendar' | 'templateCreator' | 'yearlyTaskCreator' | 'spotTaskCreator' | 'weeklyTaskCreator' | 'organization';
+type Page = 'calendar' | 'templateCreator' | 'yearlyTaskCreator' | 'spotTaskCreator' | 'weeklyTaskCreator' | 'dailyTaskCreator' | 'organization';
 
 function AppContent() {
   const { user, loading } = useAuth();
@@ -77,12 +78,21 @@ function AppContent() {
     );
   }
 
+  if (currentPage === 'dailyTaskCreator') {
+    return (
+      <DailyTemplateCreatorPage
+        onBack={() => setCurrentPage('calendar')}
+      />
+    );
+  }
+
   return (
     <CalendarPage
       onNavigateToTemplateCreator={() => setCurrentPage('templateCreator')}
       onNavigateToYearlyTaskCreator={() => setCurrentPage('yearlyTaskCreator')}
       onNavigateToSpotTaskCreator={() => setCurrentPage('spotTaskCreator')}
       onNavigateToWeeklyTaskCreator={() => setCurrentPage('weeklyTaskCreator')}
+      onNavigateToDailyTaskCreator={() => setCurrentPage('dailyTaskCreator')}
       onNavigateToOrganization={() => setCurrentPage('organization')}
     />
   );

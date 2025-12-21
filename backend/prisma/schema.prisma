@@ -38,6 +38,7 @@ model User {
   spotTasks          SpotTask[]
   yearlyTasks        YearlyTask[]
   weeklyTasks        WeeklyTask[]
+  dailyTasks         DailyTask[]
 
   @@map("users")
 }
@@ -223,4 +224,22 @@ model WeeklyTaskSchedule {
 
   @@unique([weeklyTaskId, dayOfWeek])
   @@map("weekly_task_schedules")
+}
+
+model DailyTask {
+  id           String   @id @default(uuid())
+  userId       String   @map("user_id")
+  name         String
+  displayOrder Int      @map("display_order")
+  startTime    String?  @map("start_time")  // "HH:MM" format
+  endTime      String?  @map("end_time")    // "HH:MM" format
+  parentId     String?  @map("parent_id")
+  createdAt    DateTime @default(now()) @map("created_at")
+  updatedAt    DateTime @updatedAt @map("updated_at")
+
+  user     User        @relation(fields: [userId], references: [id], onDelete: Cascade)
+  parent   DailyTask?  @relation("DailyTaskHierarchy", fields: [parentId], references: [id], onDelete: SetNull)
+  children DailyTask[] @relation("DailyTaskHierarchy")
+
+  @@map("daily_tasks")
 }

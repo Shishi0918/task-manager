@@ -565,3 +565,51 @@ export const weeklyTaskApi = {
     return handleResponse<{ message: string; count: number }>(response);
   },
 };
+
+// DailyTask types
+export interface DailyTask {
+  id: string;
+  name: string;
+  displayOrder: number;
+  startTime: string | null;
+  endTime: string | null;
+  parentId?: string | null;
+  children?: DailyTask[];
+  level?: number;
+}
+
+// DailyTask API
+export const dailyTaskApi = {
+  getAll: async (): Promise<{ dailyTasks: DailyTask[] }> => {
+    const response = await fetch(`${API_URL}/api/daily-tasks`, {
+      headers: getAuthHeaders(),
+    });
+    return handleResponse<{ dailyTasks: DailyTask[] }>(response);
+  },
+
+  bulkSave: async (
+    tasks: Array<{
+      name: string;
+      displayOrder: number;
+      startTime: string | null;
+      endTime: string | null;
+      parentIndex?: number | null;
+    }>
+  ): Promise<{ message: string; count: number }> => {
+    const response = await fetch(`${API_URL}/api/daily-tasks/bulk-save`, {
+      method: 'POST',
+      headers: getAuthHeaders(),
+      body: JSON.stringify({ tasks }),
+    });
+    return handleResponse<{ message: string; count: number }>(response);
+  },
+
+  bulkDelete: async (ids: string[]): Promise<{ message: string; count: number }> => {
+    const response = await fetch(`${API_URL}/api/daily-tasks/bulk-delete`, {
+      method: 'POST',
+      headers: getAuthHeaders(),
+      body: JSON.stringify({ ids }),
+    });
+    return handleResponse<{ message: string; count: number }>(response);
+  },
+};

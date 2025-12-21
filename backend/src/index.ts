@@ -9,6 +9,7 @@ import spotTaskRoutes from './routes/spotTask.routes.js';
 import organizationRoutes from './routes/organization.routes.js';
 import yearlyTaskRoutes from './routes/yearlyTask.routes.js';
 import weeklyTaskRoutes from './routes/weeklyTask.routes.js';
+import dailyTaskRoutes from './routes/dailyTask.routes.js';
 
 dotenv.config();
 
@@ -28,6 +29,7 @@ app.use('/api/spot-tasks', spotTaskRoutes);
 app.use('/api/organization', organizationRoutes);
 app.use('/api/yearly-tasks', yearlyTaskRoutes);
 app.use('/api/weekly-tasks', weeklyTaskRoutes);
+app.use('/api/daily-tasks', dailyTaskRoutes);
 
 // Health check
 app.get('/health', (_req, res) => {

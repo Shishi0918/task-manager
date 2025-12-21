@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef, useMemo } from 'react';
-import { completionApi, taskApi, spotTaskApi, templateApi, yearlyTaskApi, weeklyTaskApi, type WeeklyTask } from '../services/api';
+import { completionApi, taskApi, spotTaskApi, templateApi, yearlyTaskApi, weeklyTaskApi, dailyTaskApi, type WeeklyTask, type DailyTask } from '../services/api';
 import type { TaskWithCompletions, Stats } from '../types';
 import { TaskModal } from '../components/TaskModal';
 import { AccountMenu } from '../components/AccountMenu';
@@ -26,10 +26,11 @@ interface CalendarPageProps {
   onNavigateToYearlyTaskCreator: () => void;
   onNavigateToSpotTaskCreator: () => void;
   onNavigateToWeeklyTaskCreator: () => void;
+  onNavigateToDailyTaskCreator: () => void;
   onNavigateToOrganization?: () => void;
 }
 
-export const CalendarPage = ({ onNavigateToTemplateCreator, onNavigateToYearlyTaskCreator, onNavigateToSpotTaskCreator, onNavigateToWeeklyTaskCreator, onNavigateToOrganization }: CalendarPageProps) => {
+export const CalendarPage = ({ onNavigateToTemplateCreator, onNavigateToYearlyTaskCreator, onNavigateToSpotTaskCreator, onNavigateToWeeklyTaskCreator, onNavigateToDailyTaskCreator, onNavigateToOrganization }: CalendarPageProps) => {
   const { user } = useAuth();
   const [year, setYear] = useState(new Date().getFullYear());
   const [month, setMonth] = useState(new Date().getMonth() + 1);
@@ -1447,11 +1448,12 @@ export const CalendarPage = ({ onNavigateToTemplateCreator, onNavigateToYearlyTa
       };
 
       // 並列でAPIを呼び出す
-      const [monthlyResult, yearlyResult, spotResult, weeklyResult] = await Promise.all([
+      const [monthlyResult, yearlyResult, spotResult, weeklyResult, dailyResult] = await Promise.all([
         templateApi.getTemplateDetails(DEFAULT_TEMPLATE_NAME).catch(() => ({ tasks: [] as TemplateTask[] })),
         yearlyTaskApi.getAll().catch(() => ({ yearlyTasks: [] as YearlyTaskItem[] })),
         spotTaskApi.getByYearMonth(year, month),
         weeklyTaskApi.getAll().catch(() => ({ weeklyTasks: [] as WeeklyTask[] })),
+        dailyTaskApi.getAll().catch(() => ({ dailyTasks: [] as DailyTask[] })),
       ]);
 
       const monthlyTemplateTasks = monthlyResult.tasks;
@@ -1513,6 +1515,54 @@ export const CalendarPage = ({ onNavigateToTemplateCreator, onNavigateToYearlyTa
         }
       }
 
+      // 日次タスクをフラット化
+      const dailyTasks = flattenHierarchy(dailyResult.dailyTasks);
+
+      // 日次タスクを平日（土日祝を除く）に展開
+      interface ExpandedDailyTask {
+        id: string;
+        name: string;
+        startDay: number;
+        endDay: number;
+        parentId: string | null;
+        originalTaskId: string;
+      }
+
+      // 対象月の平日（土日祝を除く）を取得
+      const getWeekdaysInMonth = (): number[] => {
+        const weekdays: number[] = [];
+        const daysInMonth = new Date(year, month, 0).getDate();
+
+        for (let day = 1; day <= daysInMonth; day++) {
+          const date = new Date(year, month - 1, day);
+          const dayOfWeek = date.getDay();
+          const isSaturday = dayOfWeek === 6;
+          const isSunday = dayOfWeek === 0;
+          const isHoliday = holidays.has(day);
+
+          if (!isSaturday && !isSunday && !isHoliday) {
+            weekdays.push(day);
+          }
+        }
+        return weekdays;
+      };
+
+      const weekdaysInMonth = getWeekdaysInMonth();
+
+      const expandedDailyTasks: ExpandedDailyTask[] = [];
+      for (const task of dailyTasks) {
+        for (const day of weekdaysInMonth) {
+          expandedDailyTasks.push({
+            id: `${task.id}-daily-${day}`,
+            name: task.name,
+            startDay: day,
+            endDay: day,
+            parentId: task.parentId ?? null,
+            originalTaskId: task.id,
+          });
+        }
+      }
+
       // 現在の月に一致する年次タスク、または月未設定で子が対象月に含まれる親タスクをフィルタリング
       // Step 1: 対象月に一致するタスクのIDを収集
       const matchingMonthIds = new Set(
@@ -1535,14 +1585,14 @@ export const CalendarPage = ({ onNavigateToTemplateCreator, onNavigateToYearlyTa
         matchingMonthIds.has(task.id) || parentIdsToInclude.has(task.id)
       );
 
-      const totalTaskCount = monthlyTemplateTasks.length + matchingYearlyTasks.length + spotTasks.length + expandedWeeklyTasks.length;
+      const totalTaskCount = monthlyTemplateTasks.length + matchingYearlyTasks.length + spotTasks.length + expandedWeeklyTasks.length + expandedDailyTasks.length;
 
       if (totalTaskCount === 0) {
-        alert('貼り付けるタスクがありません。先に「月次タスク作成」「年次タスク作成」「スポットタスク作成」または「週次タスク作成」画面でタスクを作成してください。');
+        alert('貼り付けるタスクがありません。先に「月次タスク作成」「年次タスク作成」「スポットタスク作成」「週次タスク作成」または「日次タスク作成」画面でタスクを作成してください。');
         return;
       }
 
-      const message = `月次タスク（${monthlyTemplateTasks.length}件）+ 年次タスク（${matchingYearlyTasks.length}件）+ スポットタスク（${spotTasks.length}件）+ 週次タスク（${expandedWeeklyTasks.length}件）= 合計${totalTaskCount}件のタスクを追加しますか？`;
+      const message = `月次タスク（${monthlyTemplateTasks.length}件）+ 年次タスク（${matchingYearlyTasks.length}件）+ スポットタスク（${spotTasks.length}件）+ 週次タスク（${expandedWeeklyTasks.length}件）+ 日次タスク（${expandedDailyTasks.length}件）= 合計${totalTaskCount}件のタスクを追加しますか？`;
 
       if (!confirm(message)) {
         return;
@@ -1651,6 +1701,7 @@ export const CalendarPage = ({ onNavigateToTemplateCreator, onNavigateToYearlyTa
       const yearlyOrder = baseOrder + monthlyTemplateTasks.length;
       const spotOrder = yearlyOrder + matchingYearlyTasks.length;
       const weeklyOrder = spotOrder + spotTasks.length;
+      const dailyOrder = weeklyOrder + expandedWeeklyTasks.length;
 
       // 週次タスクを作成するヘルパー関数（階層なし、日付ごとに独立）
       const createWeeklyTasks = async (
@@ -1689,8 +1740,45 @@ export const CalendarPage = ({ onNavigateToTemplateCreator, onNavigateToYearlyTa
         }));
       };
 
-      // 4種類のタスクを並列で作成
-      const [monthlyResults, yearlyResults, spotResults, weeklyResults] = await Promise.all([
+      // 日次タスクを作成するヘルパー関数（階層なし、日付ごとに独立）
+      const createDailyTasks = async (
+        tasks: ExpandedDailyTask[],
+        startingOrder: number
+      ): Promise<TaskWithCompletions[]> => {
+        if (tasks.length === 0) return [];
+
+        const createPromises = tasks.map((task, i) => {
+          const startDate = `${year}-${String(month).padStart(2, '0')}-${String(task.startDay).padStart(2, '0')}`;
+          const endDate = `${year}-${String(month).padStart(2, '0')}-${String(task.endDay).padStart(2, '0')}`;
+          return taskApi.createTask(
+            task.name,
+            year,
+            month,
+            startingOrder + i,
+            startDate,
+            endDate
+          );
+        });
+
+        const createResults = await Promise.all(createPromises);
+
+        return createResults.map((result, i) => ({
+          id: result.task.id,
+          name: result.task.name,
+          year: result.task.year,
+          month: result.task.month,
+          displayOrder: result.task.displayOrder,
+          startDate: `${year}-${String(month).padStart(2, '0')}-${String(tasks[i].startDay).padStart(2, '0')}`,
+          endDate: `${year}-${String(month).padStart(2, '0')}-${String(tasks[i].endDay).padStart(2, '0')}`,
+          isCompleted: result.task.isCompleted ?? false,
+          parentId: null,
+          completions: {},
+          level: 0,
+        }));
+      };
+
+      // 5種類のタスクを並列で作成
+      const [monthlyResults, yearlyResults, spotResults, weeklyResults, dailyResults] = await Promise.all([
         monthlyTemplateTasks.length > 0
           ? createTasksWithHierarchy(monthlyTemplateTasks, monthlyOrder)
           : Promise.resolve([]),
@@ -1703,9 +1791,12 @@ export const CalendarPage = ({ onNavigateToTemplateCreator, onNavigateToYearlyTa
         expandedWeeklyTasks.length > 0
           ? createWeeklyTasks(expandedWeeklyTasks, weeklyOrder)
           : Promise.resolve([]),
+        expandedDailyTasks.length > 0
+          ? createDailyTasks(expandedDailyTasks, dailyOrder)
+          : Promise.resolve([]),
       ]);
 
-      const newTasks = [...monthlyResults, ...yearlyResults, ...spotResults, ...weeklyResults];
+      const newTasks = [...monthlyResults, ...yearlyResults, ...spotResults, ...weeklyResults, ...dailyResults];
 
       // 新規タスクをローカルステートに直接追加（リロード不要）
       setTasks(prevTasks => [...prevTasks, ...newTasks]);
@@ -1765,6 +1856,12 @@ export const CalendarPage = ({ onNavigateToTemplateCreator, onNavigateToYearlyTa
                 月次タスク管理
               </h1>
               <div className="flex gap-2">
+                <button
+                  onClick={onNavigateToDailyTaskCreator}
+                  className="px-4 py-2 bg-white/20 text-white rounded-md hover:bg-white/30 transition-colors text-sm font-medium"
+                >
+                  日次タスク作成
+                </button>
                 <button
                   onClick={onNavigateToWeeklyTaskCreator}
                   className="px-4 py-2 bg-white/20 text-white rounded-md hover:bg-white/30 transition-colors text-sm font-medium"
