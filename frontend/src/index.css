@@ -1,5 +1,10 @@
 @import "tailwindcss";
 
+/* フォント設定 */
+body {
+  font-family: 'Noto Sans JP', sans-serif;
+}
+
 /* 日付範囲選択中の点滅アニメーション */
 @keyframes blink-bar {
   0%, 100% {
