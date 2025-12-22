@@ -19,10 +19,11 @@ const updateDailyTaskSchema = z.object({
   parentId: z.string().uuid().nullable().optional(),
 });
 
-const timeStringSchema = z.string().transform((val) => {
-  if (!val || val === '') return null;
-  return val;
-}).pipe(z.string().regex(/^\d{2}:\d{2}$/).nullable());
+const timeStringSchema = z.union([
+  z.string().regex(/^\d{2}:\d{2}$/).transform((val) => val),
+  z.string().length(0).transform(() => null),
+  z.null(),
+]);
 
 const bulkSaveSchema = z.object({
   tasks: z.array(z.object({
