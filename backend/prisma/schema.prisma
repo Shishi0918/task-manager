@@ -39,6 +39,7 @@ model User {
   yearlyTasks        YearlyTask[]
   weeklyTasks        WeeklyTask[]
   dailyTasks         DailyTask[]
+  projects           Project[]
 
   @@map("users")
 }
@@ -247,4 +248,53 @@ model DailyTask {
   children DailyTask[] @relation("DailyTaskHierarchy")
 
   @@map("daily_tasks")
+}
+
+model Project {
+  id        String   @id @default(uuid())
+  userId    String   @map("user_id")
+  name      String
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  user    User            @relation(fields: [userId], references: [id], onDelete: Cascade)
+  members ProjectMember[]
+  tasks   ProjectTask[]
+
+  @@map("projects")
+}
+
+model ProjectMember {
+  id           String   @id @default(uuid())
+  projectId    String   @map("project_id")
+  name         String
+  color        String   // HEX color code like "#FF5733"
+  displayOrder Int      @map("display_order")
+  createdAt    DateTime @default(now()) @map("created_at")
+
+  project Project       @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  tasks   ProjectTask[]
+
+  @@map("project_members")
+}
+
+model ProjectTask {
+  id           String    @id @default(uuid())
+  projectId    String    @map("project_id")
+  memberId     String?   @map("member_id")
+  name         String
+  parentId     String?   @map("parent_id")
+  startDate    DateTime? @db.Date @map("start_date")
+  endDate      DateTime? @db.Date @map("end_date")
+  displayOrder Int       @map("display_order")
+  isCompleted  Boolean   @default(false) @map("is_completed")
+  createdAt    DateTime  @default(now()) @map("created_at")
+  updatedAt    DateTime  @updatedAt @map("updated_at")
+
+  project  Project        @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  member   ProjectMember? @relation(fields: [memberId], references: [id], onDelete: SetNull)
+  parent   ProjectTask?   @relation("ProjectTaskHierarchy", fields: [parentId], references: [id], onDelete: SetNull)
+  children ProjectTask[]  @relation("ProjectTaskHierarchy")
+
+  @@map("project_tasks")
 }

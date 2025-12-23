@@ -6,6 +6,10 @@ import type {
   MonthlyData,
   Stats,
   Organization,
+  Project,
+  ProjectMember,
+  ProjectTask,
+  ProjectDetail,
 } from '../types';
 
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:3001';
@@ -616,6 +620,182 @@ export const dailyTaskApi = {
 
   bulkDelete: async (ids: string[]): Promise<{ message: string; count: number }> => {
     const response = await fetch(`${API_URL}/api/daily-tasks/bulk-delete`, {
+      method: 'POST',
+      headers: getAuthHeaders(),
+      body: JSON.stringify({ ids }),
+    });
+    return handleResponse<{ message: string; count: number }>(response);
+  },
+};
+
+// Project API
+export const projectApi = {
+  getAll: async (): Promise<{ projects: Project[] }> => {
+    const response = await fetch(`${API_URL}/api/projects`, {
+      headers: getAuthHeaders(),
+    });
+    return handleResponse<{ projects: Project[] }>(response);
+  },
+
+  get: async (id: string): Promise<{ project: ProjectDetail }> => {
+    const response = await fetch(`${API_URL}/api/projects/${id}`, {
+      headers: getAuthHeaders(),
+    });
+    return handleResponse<{ project: ProjectDetail }>(response);
+  },
+
+  create: async (data: {
+    name: string;
+    members?: Array<{ name: string; color: string }>;
+  }): Promise<{ project: ProjectDetail }> => {
+    const response = await fetch(`${API_URL}/api/projects`, {
+      method: 'POST',
+      headers: getAuthHeaders(),
+      body: JSON.stringify(data),
+    });
+    return handleResponse<{ project: ProjectDetail }>(response);
+  },
+
+  update: async (id: string, data: { name?: string }): Promise<{ project: Project }> => {
+    const response = await fetch(`${API_URL}/api/projects/${id}`, {
+      method: 'PUT',
+      headers: getAuthHeaders(),
+      body: JSON.stringify(data),
+    });
+    return handleResponse<{ project: Project }>(response);
+  },
+
+  delete: async (id: string): Promise<{ message: string }> => {
+    const response = await fetch(`${API_URL}/api/projects/${id}`, {
+      method: 'DELETE',
+      headers: getAuthHeaders(),
+    });
+    return handleResponse<{ message: string }>(response);
+  },
+
+  bulkDelete: async (ids: string[]): Promise<{ message: string; count: number }> => {
+    const response = await fetch(`${API_URL}/api/projects/bulk-delete`, {
+      method: 'POST',
+      headers: getAuthHeaders(),
+      body: JSON.stringify({ ids }),
+    });
+    return handleResponse<{ message: string; count: number }>(response);
+  },
+
+  // Members
+  getMembers: async (projectId: string): Promise<{ members: ProjectMember[] }> => {
+    const response = await fetch(`${API_URL}/api/projects/${projectId}/members`, {
+      headers: getAuthHeaders(),
+    });
+    return handleResponse<{ members: ProjectMember[] }>(response);
+  },
+
+  addMember: async (
+    projectId: string,
+    data: { name: string; color: string }
+  ): Promise<{ member: ProjectMember }> => {
+    const response = await fetch(`${API_URL}/api/projects/${projectId}/members`, {
+      method: 'POST',
+      headers: getAuthHeaders(),
+      body: JSON.stringify(data),
+    });
+    return handleResponse<{ member: ProjectMember }>(response);
+  },
+
+  updateMember: async (
+    projectId: string,
+    memberId: string,
+    data: { name?: string; color?: string }
+  ): Promise<{ member: ProjectMember }> => {
+    const response = await fetch(`${API_URL}/api/projects/${projectId}/members/${memberId}`, {
+      method: 'PUT',
+      headers: getAuthHeaders(),
+      body: JSON.stringify(data),
+    });
+    return handleResponse<{ member: ProjectMember }>(response);
+  },
+
+  deleteMember: async (projectId: string, memberId: string): Promise<{ message: string }> => {
+    const response = await fetch(`${API_URL}/api/projects/${projectId}/members/${memberId}`, {
+      method: 'DELETE',
+      headers: getAuthHeaders(),
+    });
+    return handleResponse<{ message: string }>(response);
+  },
+
+  bulkSaveMembers: async (
+    projectId: string,
+    members: Array<{ name: string; color: string }>
+  ): Promise<{ members: ProjectMember[] }> => {
+    const response = await fetch(`${API_URL}/api/projects/${projectId}/members/bulk-save`, {
+      method: 'POST',
+      headers: getAuthHeaders(),
+      body: JSON.stringify({ members }),
+    });
+    return handleResponse<{ members: ProjectMember[] }>(response);
+  },
+
+  // Tasks
+  getTasks: async (projectId: string): Promise<{ tasks: ProjectTask[] }> => {
+    const response = await fetch(`${API_URL}/api/projects/${projectId}/tasks`, {
+      headers: getAuthHeaders(),
+    });
+    return handleResponse<{ tasks: ProjectTask[] }>(response);
+  },
+
+  createTask: async (
+    projectId: string,
+    data: {
+      name: string;
+      memberId?: string | null;
+      parentId?: string | null;
+      startDate?: string | null;
+      endDate?: string | null;
+      displayOrder: number;
+    }
+  ): Promise<{ task: ProjectTask }> => {
+    const response = await fetch(`${API_URL}/api/projects/${projectId}/tasks`, {
+      method: 'POST',
+      headers: getAuthHeaders(),
+      body: JSON.stringify(data),
+    });
+    return handleResponse<{ task: ProjectTask }>(response);
+  },
+
+  updateTask: async (
+    projectId: string,
+    taskId: string,
+    data: {
+      name?: string;
+      memberId?: string | null;
+      parentId?: string | null;
+      startDate?: string | null;
+      endDate?: string | null;
+      displayOrder?: number;
+      isCompleted?: boolean;
+    }
+  ): Promise<{ task: ProjectTask }> => {
+    const response = await fetch(`${API_URL}/api/projects/${projectId}/tasks/${taskId}`, {
+      method: 'PUT',
+      headers: getAuthHeaders(),
+      body: JSON.stringify(data),
+    });
+    return handleResponse<{ task: ProjectTask }>(response);
+  },
+
+  deleteTask: async (projectId: string, taskId: string): Promise<{ message: string }> => {
+    const response = await fetch(`${API_URL}/api/projects/${projectId}/tasks/${taskId}`, {
+      method: 'DELETE',
+      headers: getAuthHeaders(),
+    });
+    return handleResponse<{ message: string }>(response);
+  },
+
+  bulkDeleteTasks: async (
+    projectId: string,
+    ids: string[]
+  ): Promise<{ message: string; count: number }> => {
+    const response = await fetch(`${API_URL}/api/projects/${projectId}/tasks/bulk-delete`, {
       method: 'POST',
       headers: getAuthHeaders(),
       body: JSON.stringify({ ids }),

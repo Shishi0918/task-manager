@@ -28,9 +28,10 @@ interface CalendarPageProps {
   onNavigateToWeeklyTaskCreator: () => void;
   onNavigateToDailyTaskCreator: () => void;
   onNavigateToOrganization?: () => void;
+  onNavigateToProjects?: () => void;
 }
 
-export const CalendarPage = ({ onNavigateToTemplateCreator, onNavigateToYearlyTaskCreator, onNavigateToSpotTaskCreator, onNavigateToWeeklyTaskCreator, onNavigateToDailyTaskCreator, onNavigateToOrganization }: CalendarPageProps) => {
+export const CalendarPage = ({ onNavigateToTemplateCreator, onNavigateToYearlyTaskCreator, onNavigateToSpotTaskCreator, onNavigateToWeeklyTaskCreator, onNavigateToDailyTaskCreator, onNavigateToOrganization, onNavigateToProjects }: CalendarPageProps) => {
   const { user } = useAuth();
   const [year, setYear] = useState(new Date().getFullYear());
   const [month, setMonth] = useState(new Date().getMonth() + 1);
@@ -1932,6 +1933,12 @@ export const CalendarPage = ({ onNavigateToTemplateCreator, onNavigateToYearlyTa
                   className="px-4 py-2 bg-white/20 text-white rounded-md hover:bg-white/30 transition-colors text-sm font-medium"
                 >
                   スポットタスク作成
+                </button>
+                <button
+                  onClick={onNavigateToProjects}
+                  className="px-4 py-2 bg-white/20 text-white rounded-md hover:bg-white/30 transition-colors text-sm font-medium"
+                >
+                  プロジェクト
                 </button>
               </div>
             </div>

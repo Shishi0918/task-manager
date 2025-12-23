@@ -9,6 +9,7 @@ import spotTaskRoutes from '../backend/src/routes/spotTask.routes.js';
 import yearlyTaskRoutes from '../backend/src/routes/yearlyTask.routes.js';
 import weeklyTaskRoutes from '../backend/src/routes/weeklyTask.routes.js';
 import dailyTaskRoutes from '../backend/src/routes/dailyTask.routes.js';
+import projectRoutes from '../backend/src/routes/project.routes.js';
 
 const app = express();
 
@@ -26,6 +27,7 @@ app.use('/api/spot-tasks', spotTaskRoutes);
 app.use('/api/yearly-tasks', yearlyTaskRoutes);
 app.use('/api/weekly-tasks', weeklyTaskRoutes);
 app.use('/api/daily-tasks', dailyTaskRoutes);
+app.use('/api/projects', projectRoutes);
 
 // Health check
 app.get('/api/health', (_req, res) => {

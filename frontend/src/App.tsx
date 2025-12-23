@@ -8,12 +8,16 @@ import { SpotTaskCreatorPage } from './pages/SpotTaskCreatorPage';
 import { WeeklyTaskCreatorPage } from './pages/WeeklyTaskCreatorPage';
 import { DailyTemplateCreatorPage } from './pages/DailyTemplateCreatorPage';
 import { OrganizationPage } from './pages/OrganizationPage';
+import { ProjectListPage } from './pages/ProjectListPage';
+import { ProjectFormPage } from './pages/ProjectFormPage';
+import { ProjectPage } from './pages/ProjectPage';
 
-type Page = 'calendar' | 'templateCreator' | 'yearlyTaskCreator' | 'spotTaskCreator' | 'weeklyTaskCreator' | 'dailyTaskCreator' | 'organization';
+type Page = 'calendar' | 'templateCreator' | 'yearlyTaskCreator' | 'spotTaskCreator' | 'weeklyTaskCreator' | 'dailyTaskCreator' | 'organization' | 'projectList' | 'projectForm' | 'project';
 
 function AppContent() {
   const { user, loading } = useAuth();
   const [currentPage, setCurrentPage] = useState<Page>('calendar');
+  const [selectedProjectId, setSelectedProjectId] = useState<string | undefined>(undefined);
 
   if (loading) {
     return (
@@ -86,6 +90,49 @@ function AppContent() {
     );
   }
 
+  if (currentPage === 'projectList') {
+    return (
+      <ProjectListPage
+        onBack={() => setCurrentPage('calendar')}
+        onNavigateToNewProject={() => {
+          setSelectedProjectId(undefined);
+          setCurrentPage('projectForm');
+        }}
+        onNavigateToProjectSettings={(projectId) => {
+          setSelectedProjectId(projectId);
+          setCurrentPage('projectForm');
+        }}
+        onNavigateToProject={(projectId) => {
+          setSelectedProjectId(projectId);
+          setCurrentPage('project');
+        }}
+      />
+    );
+  }
+
+  if (currentPage === 'projectForm') {
+    return (
+      <ProjectFormPage
+        projectId={selectedProjectId}
+        onBack={() => setCurrentPage('projectList')}
+        onSuccess={(projectId) => {
+          setSelectedProjectId(projectId);
+          setCurrentPage('project');
+        }}
+      />
+    );
+  }
+
+  if (currentPage === 'project' && selectedProjectId) {
+    return (
+      <ProjectPage
+        projectId={selectedProjectId}
+        onBack={() => setCurrentPage('projectList')}
+        onNavigateToSettings={() => setCurrentPage('projectForm')}
+      />
+    );
+  }
+
   return (
     <CalendarPage
       onNavigateToTemplateCreator={() => setCurrentPage('templateCreator')}
@@ -94,6 +141,7 @@ function AppContent() {
       onNavigateToWeeklyTaskCreator={() => setCurrentPage('weeklyTaskCreator')}
       onNavigateToDailyTaskCreator={() => setCurrentPage('dailyTaskCreator')}
       onNavigateToOrganization={() => setCurrentPage('organization')}
+      onNavigateToProjects={() => setCurrentPage('projectList')}
     />
   );
 }

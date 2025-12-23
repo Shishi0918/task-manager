@@ -102,3 +102,50 @@ export interface SpotTask {
   children?: SpotTask[];
   level?: number;
 }
+
+// Project types
+export interface Project {
+  id: string;
+  name: string;
+  startDate: string | null;
+  endDate: string | null;
+  taskCount: number;
+  memberCount: number;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface ProjectMember {
+  id: string;
+  projectId: string;
+  name: string;
+  color: string;
+  displayOrder: number;
+  createdAt: string;
+}
+
+export interface ProjectTask {
+  id: string;
+  projectId: string;
+  memberId: string | null;
+  name: string;
+  parentId: string | null;
+  startDate: string | null;
+  endDate: string | null;
+  displayOrder: number;
+  isCompleted: boolean;
+  member?: ProjectMember | null;
+  children?: ProjectTask[];
+  level?: number;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface ProjectDetail {
+  id: string;
+  name: string;
+  members: ProjectMember[];
+  tasks: ProjectTask[];
+  createdAt: string;
+  updatedAt: string;
+}
