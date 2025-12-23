@@ -1,9 +1,7 @@
-import { useState, useEffect, useMemo, useCallback } from 'react';
+import { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import { projectApi } from '../services/api';
 import type { ProjectTask, ProjectDetail, ProjectMember } from '../types';
 import { getHolidaysForMonth } from '../utils/holidays';
-import { useTaskDragDrop } from '../hooks/useTaskDragDrop';
-import { useTaskSelection } from '../hooks/useTaskSelection';
 
 // 階層タスクをフラット化する関数
 const flattenTasks = (
@@ -25,7 +23,7 @@ interface CalendarDay {
   year: number;
   month: number;
   day: number;
-  dateStr: string; // "YYYY-MM-DD"
+  dateStr: string;
   isFirstDayOfMonth: boolean;
 }
 
@@ -55,7 +53,6 @@ const generateCalendarDays = (startYear: number, startMonth: number, monthCount:
   return result;
 };
 
-
 interface ProjectPageProps {
   projectId: string;
   onBack: () => void;
@@ -69,24 +66,39 @@ export function ProjectPage({ projectId, onBack, onNavigateToSettings }: Project
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
 
-  // 日付選択状態（フル日付文字列で管理）
+  // 日付選択状態
   const [selectedStartDate, setSelectedStartDate] = useState<Record<string, string | null>>({});
   const [hoverDate, setHoverDate] = useState<Record<string, string | null>>({});
 
+  // チェック状態
+  const [checkedTasks, setCheckedTasks] = useState<Set<string>>(new Set());
+  const [lastCheckedTaskId, setLastCheckedTaskId] = useState<string | null>(null);
+
+  // 編集状態
   const [editingTaskId, setEditingTaskId] = useState<string | null>(null);
   const [editingTaskName, setEditingTaskName] = useState('');
   const [isComposing, setIsComposing] = useState(false);
   const [lastSavedTaskId, setLastSavedTaskId] = useState<string | null>(null);
   const [shouldAddNewTask, setShouldAddNewTask] = useState(false);
 
-  // 表示中の年月（スクロール位置から自動更新）
+  // ドラッグ状態
+  const [draggedTaskId, setDraggedTaskId] = useState<string | null>(null);
+  const [dragOverTaskId, setDragOverTaskId] = useState<string | null>(null);
+  const [dragOverBottom, setDragOverBottom] = useState(false);
+  const [dragMode, setDragMode] = useState<'reorder' | 'nest' | 'unnest'>('reorder');
+  const [nestTargetTaskId, setNestTargetTaskId] = useState<string | null>(null);
+
+  const tableRef = useRef<HTMLTableElement>(null);
+  const scrollContainerRef = useRef<HTMLDivElement>(null);
+
+  // 表示中の年月
   const [displayYear, setDisplayYear] = useState(new Date().getFullYear());
   const [displayMonth, setDisplayMonth] = useState(new Date().getMonth() + 1);
 
   // カレンダー開始位置（現在月の1ヶ月前から24ヶ月分）
   const calendarStart = useMemo(() => {
     const now = new Date();
-    let startMonth = now.getMonth(); // 0-indexed, 1ヶ月前
+    let startMonth = now.getMonth();
     let startYear = now.getFullYear();
     if (startMonth < 0) {
       startMonth += 12;
@@ -126,15 +138,11 @@ export function ProjectPage({ projectId, onBack, onNavigateToSettings }: Project
       const todayIndex = calendarDays.findIndex(d => d.dateStr === todayStr);
       if (todayIndex >= 0) {
         const dayColumnWidth = 53;
-        scrollContainerRef.current.scrollLeft = todayIndex * dayColumnWidth;
+        const offset = 240; // タスク列 + 担当者列
+        scrollContainerRef.current.scrollLeft = Math.max(0, todayIndex * dayColumnWidth - offset);
       }
     }
   }, [calendarDays]);
-
-  // タスク更新用の関数
-  const handleUpdateTask = async (taskId: string, data: Partial<ProjectTask>): Promise<void> => {
-    await projectApi.updateTask(projectId, taskId, data);
-  };
 
   // データ取得
   const fetchData = async (showLoading = true) => {
@@ -157,43 +165,13 @@ export function ProjectPage({ projectId, onBack, onNavigateToSettings }: Project
     fetchData();
   }, [projectId]);
 
-  // ドラッグ&ドロップ フック
-  const {
-    draggedTaskId,
-    dragOverTaskId,
-    dragOverBottom,
-    dragMode,
-    nestTargetTaskId,
-    tableRef,
-    scrollContainerRef,
-    handleDragStart,
-    handleDragOver,
-    handleDragLeave,
-    handleDrop,
-    handleDragEnd,
-  } = useTaskDragDrop({
-    tasks,
-    setTasks,
-    onUpdateTask: handleUpdateTask,
-    onError: setError,
-    onRefetch: fetchData,
-  });
-
-  // 選択フック
-  const {
-    checkedTasks,
-    isAllSelected,
-    handleToggleTask,
-    handleToggleAllTasks,
-    clearSelection,
-  } = useTaskSelection(tasks);
-
   // スクロールで表示月を更新
   const handleScroll = useCallback(() => {
     if (!scrollContainerRef.current) return;
     const scrollLeft = scrollContainerRef.current.scrollLeft;
     const dayColumnWidth = 53;
-    const visibleDayIndex = Math.floor(scrollLeft / dayColumnWidth);
+    const offset = 240;
+    const visibleDayIndex = Math.floor((scrollLeft + offset) / dayColumnWidth);
     const clampedIndex = Math.max(0, Math.min(visibleDayIndex, calendarDays.length - 1));
     const visibleDay = calendarDays[clampedIndex];
     if (visibleDay && (visibleDay.year !== displayYear || visibleDay.month !== displayMonth)) {
@@ -282,7 +260,42 @@ export function ProjectPage({ projectId, onBack, onNavigateToSettings }: Project
     }
   };
 
-  // 選択タスク完了/未完了切り替え
+  // チェックボックス
+  const handleToggleAllTasks = () => {
+    if (checkedTasks.size === tasks.length) {
+      setCheckedTasks(new Set());
+    } else {
+      setCheckedTasks(new Set(tasks.map(t => t.id)));
+    }
+  };
+
+  const handleToggleTaskCheck = (taskId: string, e: React.MouseEvent) => {
+    const newChecked = new Set(checkedTasks);
+
+    if (e.shiftKey && lastCheckedTaskId) {
+      const lastIndex = tasks.findIndex(t => t.id === lastCheckedTaskId);
+      const currentIndex = tasks.findIndex(t => t.id === taskId);
+      if (lastIndex !== -1 && currentIndex !== -1) {
+        const start = Math.min(lastIndex, currentIndex);
+        const end = Math.max(lastIndex, currentIndex);
+        for (let i = start; i <= end; i++) {
+          newChecked.add(tasks[i].id);
+        }
+        setCheckedTasks(newChecked);
+        return;
+      }
+    }
+
+    if (newChecked.has(taskId)) {
+      newChecked.delete(taskId);
+    } else {
+      newChecked.add(taskId);
+    }
+    setCheckedTasks(newChecked);
+    setLastCheckedTaskId(taskId);
+  };
+
+  // 完了切り替え
   const handleCompleteSelected = async () => {
     if (checkedTasks.size === 0) return;
     const checkedTaskObjects = tasks.filter(t => checkedTasks.has(t.id));
@@ -299,14 +312,14 @@ export function ProjectPage({ projectId, onBack, onNavigateToSettings }: Project
           projectApi.updateTask(projectId, id, { isCompleted: newIsCompleted })
         )
       );
-      clearSelection();
+      setCheckedTasks(new Set());
     } catch (err) {
       setError(err instanceof Error ? err.message : '完了状態の更新に失敗しました');
       fetchData();
     }
   };
 
-  // 選択タスク削除
+  // 削除
   const handleBulkDelete = async () => {
     if (checkedTasks.size === 0) return;
     if (!confirm(`${checkedTasks.size}件のタスクを削除しますか？`)) return;
@@ -315,118 +328,62 @@ export function ProjectPage({ projectId, onBack, onNavigateToSettings }: Project
 
     try {
       await projectApi.bulkDeleteTasks(projectId, Array.from(checkedTasks));
-      clearSelection();
+      setCheckedTasks(new Set());
     } catch (err) {
       setError(err instanceof Error ? err.message : 'タスクの削除に失敗しました');
       fetchData();
     }
   };
 
-  // ソート
-  const handleSortByStartDate = async () => {
-    const sortHierarchically = (
-      taskList: ProjectTask[],
-      compareFn: (a: ProjectTask, b: ProjectTask) => number
-    ): ProjectTask[] => {
-      const rootTasks = taskList.filter(t => !t.parentId);
-      const childrenMap = new Map<string, ProjectTask[]>();
-      taskList.forEach(t => {
-        if (t.parentId) {
-          const children = childrenMap.get(t.parentId) || [];
-          children.push(t);
-          childrenMap.set(t.parentId, children);
-        }
-      });
-
-      const sortAndFlatten = (tasksToSort: ProjectTask[]): ProjectTask[] => {
-        const sorted = [...tasksToSort].sort(compareFn);
-        const result: ProjectTask[] = [];
-        for (const task of sorted) {
-          result.push(task);
-          const children = childrenMap.get(task.id);
-          if (children && children.length > 0) {
-            result.push(...sortAndFlatten(children));
-          }
-        }
-        return result;
-      };
-
-      return sortAndFlatten(rootTasks);
-    };
-
-    const incompleteTasks = tasks.filter(t => !t.isCompleted);
-    const completedTasks = tasks.filter(t => t.isCompleted);
-
-    const sortedIncomplete = sortHierarchically(incompleteTasks, (a, b) => {
-      if (!a.startDate && !b.startDate) return 0;
-      if (!a.startDate) return 1;
-      if (!b.startDate) return -1;
-      return a.startDate.localeCompare(b.startDate);
-    });
-
-    const sortedCompleted = sortHierarchically(completedTasks, (a, b) => {
-      if (!a.startDate && !b.startDate) return 0;
-      if (!a.startDate) return 1;
-      if (!b.startDate) return -1;
-      return a.startDate.localeCompare(b.startDate);
-    });
-
-    const sortedTasks = [...sortedIncomplete, ...sortedCompleted];
-    const updatePromises: Promise<void>[] = [];
-
-    for (let i = 0; i < sortedTasks.length; i++) {
-      if (sortedTasks[i].displayOrder !== i + 1) {
-        sortedTasks[i] = { ...sortedTasks[i], displayOrder: i + 1 };
-        updatePromises.push(handleUpdateTask(sortedTasks[i].id, { displayOrder: i + 1 }));
-      }
-    }
-
-    setTasks(sortedTasks);
-    await Promise.all(updatePromises);
+  // 日付範囲内判定
+  const isDateInRange = (task: ProjectTask, dateStr: string): boolean => {
+    if (!task.startDate || !task.endDate) return false;
+    return dateStr >= task.startDate && dateStr <= task.endDate;
   };
 
-  // 日付クリック（日付選択）- dateStrを直接受け取る
-  const handleDayClick = async (taskId: string, dateStr: string) => {
+  // 日付クリック
+  const handleCellClick = async (taskId: string, dateStr: string) => {
     const task = tasks.find(t => t.id === taskId);
     if (!task || task.isCompleted) return;
 
-    const parentTask = task.parentId ? tasks.find(t => t.id === task.parentId) : null;
-    if (parentTask) {
-      if (parentTask.startDate && dateStr < parentTask.startDate) return;
-      if (parentTask.endDate && dateStr > parentTask.endDate) return;
+    const currentStartDate = selectedStartDate[taskId];
+
+    // 既に確定した範囲内をクリックした場合はクリア
+    if (task && isDateInRange(task, dateStr) && (currentStartDate === null || currentStartDate === undefined)) {
+      setTasks(prevTasks => prevTasks.map(t =>
+        t.id === taskId ? { ...t, startDate: null, endDate: null } : t
+      ));
+      try {
+        await projectApi.updateTask(projectId, taskId, { startDate: null, endDate: null });
+      } catch (err) {
+        setError(err instanceof Error ? err.message : '日付のクリアに失敗しました');
+      }
+      return;
     }
 
-    const startDateStr = selectedStartDate[taskId];
-
-    if (!startDateStr) {
+    if (currentStartDate === null || currentStartDate === undefined) {
       // 開始日を選択
-      setSelectedStartDate(prev => ({ ...prev, [taskId]: dateStr }));
+      setSelectedStartDate({ ...selectedStartDate, [taskId]: dateStr });
     } else {
       // 終了日を選択
-      const newStartDate = dateStr < startDateStr ? dateStr : startDateStr;
-      const newEndDate = dateStr < startDateStr ? startDateStr : dateStr;
+      if (dateStr < currentStartDate) return;
 
-      setTasks(prev => prev.map(t => t.id === taskId ? { ...t, startDate: newStartDate, endDate: newEndDate } : t));
-      setSelectedStartDate(prev => ({ ...prev, [taskId]: null }));
-      setHoverDate(prev => ({ ...prev, [taskId]: null }));
+      const startDateStr = currentStartDate;
+      const endDateStr = dateStr;
+
+      setTasks(prevTasks => prevTasks.map(t =>
+        t.id === taskId ? { ...t, startDate: startDateStr, endDate: endDateStr } : t
+      ));
+      setSelectedStartDate({ ...selectedStartDate, [taskId]: null });
+      setHoverDate({ ...hoverDate, [taskId]: null });
 
       try {
-        await projectApi.updateTask(projectId, taskId, { startDate: newStartDate, endDate: newEndDate });
+        await projectApi.updateTask(projectId, taskId, { startDate: startDateStr, endDate: endDateStr });
       } catch (err) {
         setError(err instanceof Error ? err.message : '日付の更新に失敗しました');
         fetchData();
       }
     }
-  };
-
-  const handleDayMouseEnter = (taskId: string, dateStr: string) => {
-    if (selectedStartDate[taskId]) {
-      setHoverDate(prev => ({ ...prev, [taskId]: dateStr }));
-    }
-  };
-
-  const handleDayMouseLeave = (taskId: string) => {
-    setHoverDate(prev => ({ ...prev, [taskId]: null }));
   };
 
   // 担当者変更
@@ -440,6 +397,178 @@ export function ProjectPage({ projectId, onBack, onNavigateToSettings }: Project
     }
   };
 
+  // ドラッグ&ドロップ
+  const handleDragStart = (e: React.DragEvent, taskId: string) => {
+    setDraggedTaskId(taskId);
+    e.dataTransfer.effectAllowed = 'move';
+  };
+
+  const handleDragOver = (e: React.DragEvent) => {
+    e.preventDefault();
+    if (!draggedTaskId || !tableRef.current) return;
+
+    const tbody = tableRef.current.querySelector('tbody');
+    if (!tbody) return;
+
+    const rows = Array.from(tbody.querySelectorAll('tr[data-task-id]'));
+    const mouseY = e.clientY;
+
+    let foundTarget = false;
+    for (const row of rows) {
+      const rect = row.getBoundingClientRect();
+      const taskId = row.getAttribute('data-task-id');
+      if (!taskId || taskId === draggedTaskId) continue;
+
+      if (mouseY >= rect.top && mouseY <= rect.bottom) {
+        const relativeY = mouseY - rect.top;
+        const rowHeight = rect.height;
+
+        if (relativeY < rowHeight * 0.3) {
+          setDragOverTaskId(taskId);
+          setDragOverBottom(false);
+          setDragMode('reorder');
+          setNestTargetTaskId(null);
+        } else if (relativeY < rowHeight * 0.7) {
+          setDragOverTaskId(null);
+          setDragOverBottom(false);
+          setDragMode('nest');
+          setNestTargetTaskId(taskId);
+        } else {
+          setDragOverTaskId(taskId);
+          setDragOverBottom(false);
+          setDragMode('reorder');
+          setNestTargetTaskId(null);
+        }
+        foundTarget = true;
+        break;
+      }
+    }
+
+    if (!foundTarget) {
+      const lastRow = rows[rows.length - 1];
+      if (lastRow) {
+        const rect = lastRow.getBoundingClientRect();
+        if (mouseY > rect.bottom) {
+          setDragOverTaskId(null);
+          setDragOverBottom(true);
+          setDragMode('reorder');
+          setNestTargetTaskId(null);
+        }
+      }
+    }
+  };
+
+  const handleDragLeave = () => {
+    setDragOverTaskId(null);
+    setDragOverBottom(false);
+    setNestTargetTaskId(null);
+  };
+
+  const handleDrop = async (e: React.DragEvent, targetTaskId?: string) => {
+    e.preventDefault();
+    if (!draggedTaskId) return;
+
+    const currentDragMode = dragMode;
+    const currentNestTarget = nestTargetTaskId;
+    const isDropToBottom = dragOverBottom;
+
+    setDragOverTaskId(null);
+    setDragOverBottom(false);
+    setDragMode('reorder');
+    setNestTargetTaskId(null);
+
+    // 階層化モード
+    if (currentDragMode === 'nest' && currentNestTarget) {
+      setTasks(prevTasks => {
+        const newTasks = [...prevTasks];
+        const draggedIndex = newTasks.findIndex(t => t.id === draggedTaskId);
+        const targetIndex = newTasks.findIndex(t => t.id === currentNestTarget);
+        if (draggedIndex === -1 || targetIndex === -1) return prevTasks;
+
+        const draggedTask = newTasks[draggedIndex];
+        draggedTask.parentId = currentNestTarget;
+        draggedTask.level = (newTasks[targetIndex].level ?? 0) + 1;
+
+        newTasks.splice(draggedIndex, 1);
+        const newTargetIndex = newTasks.findIndex(t => t.id === currentNestTarget);
+        newTasks.splice(newTargetIndex + 1, 0, draggedTask);
+
+        return newTasks;
+      });
+
+      setDraggedTaskId(null);
+      projectApi.updateTask(projectId, draggedTaskId, { parentId: currentNestTarget }).catch(err => {
+        setError(err instanceof Error ? err.message : '階層の変更に失敗しました');
+        fetchData();
+      });
+      return;
+    }
+
+    // 最後に移動
+    if (isDropToBottom) {
+      const draggedIndex = tasks.findIndex(t => t.id === draggedTaskId);
+      if (draggedIndex === -1 || draggedIndex === tasks.length - 1) {
+        setDraggedTaskId(null);
+        return;
+      }
+
+      const newTasks = [...tasks];
+      const [movedTask] = newTasks.splice(draggedIndex, 1);
+      newTasks.push(movedTask);
+
+      const updatePromises: Promise<any>[] = [];
+      for (let i = 0; i < newTasks.length; i++) {
+        if (newTasks[i].displayOrder !== i + 1) {
+          newTasks[i] = { ...newTasks[i], displayOrder: i + 1 };
+          updatePromises.push(projectApi.updateTask(projectId, newTasks[i].id, { displayOrder: i + 1 }));
+        }
+      }
+
+      setTasks(newTasks);
+      setDraggedTaskId(null);
+      await Promise.all(updatePromises);
+      return;
+    }
+
+    const effectiveTargetId = targetTaskId || dragOverTaskId;
+    if (!effectiveTargetId || draggedTaskId === effectiveTargetId) {
+      setDraggedTaskId(null);
+      return;
+    }
+
+    const draggedIndex = tasks.findIndex(t => t.id === draggedTaskId);
+    const targetIndex = tasks.findIndex(t => t.id === effectiveTargetId);
+    if (draggedIndex === -1 || targetIndex === -1) {
+      setDraggedTaskId(null);
+      return;
+    }
+
+    const newTasks = [...tasks];
+    const [movedTask] = newTasks.splice(draggedIndex, 1);
+    const adjustedTargetIndex = draggedIndex < targetIndex ? targetIndex - 1 : targetIndex;
+    newTasks.splice(adjustedTargetIndex, 0, movedTask);
+
+    const updatePromises: Promise<any>[] = [];
+    for (let i = 0; i < newTasks.length; i++) {
+      if (newTasks[i].displayOrder !== i + 1) {
+        newTasks[i] = { ...newTasks[i], displayOrder: i + 1 };
+        updatePromises.push(projectApi.updateTask(projectId, newTasks[i].id, { displayOrder: i + 1 }));
+      }
+    }
+
+    setTasks(newTasks);
+    setDraggedTaskId(null);
+    await Promise.all(updatePromises);
+  };
+
+  const handleDragEnd = () => {
+    setDraggedTaskId(null);
+    setDragOverTaskId(null);
+    setDragOverBottom(false);
+    setDragMode('reorder');
+    setNestTargetTaskId(null);
+  };
+
   if (loading) {
     return (
       <div className="min-h-screen bg-gray-100 flex items-center justify-center">
@@ -449,56 +578,49 @@ export function ProjectPage({ projectId, onBack, onNavigateToSettings }: Project
   }
 
   return (
-    <div className="min-h-screen bg-gray-50 p-4">
-      <div className="max-w-full mx-auto">
-        {/* ヘッダー */}
-        <div className="mb-4 flex items-center justify-between">
-          <div className="flex items-center gap-4">
-            <button
-              onClick={onBack}
-              className="text-blue-600 hover:text-blue-800 flex items-center"
-            >
-              <svg className="w-4 h-4 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
-              </svg>
-              プロジェクト一覧
-            </button>
-            <h1 className="text-xl font-bold text-gray-800">{project?.name || 'プロジェクト'}</h1>
+    <div className="min-h-screen bg-gray-50">
+      <header className="bg-white shadow-sm border-b border-gray-200">
+        <div className="max-w-full mx-auto px-4 sm:px-6 lg:px-8">
+          <div className="flex justify-between items-center py-4">
+            <div className="flex items-center gap-4">
+              <button
+                onClick={onBack}
+                className="text-blue-600 hover:text-blue-800 flex items-center"
+              >
+                <svg className="w-4 h-4 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
+                </svg>
+                プロジェクト一覧
+              </button>
+              <h1 className="text-xl font-bold text-gray-900">{project?.name || 'プロジェクト'}</h1>
+            </div>
+            <div className="flex items-center gap-3">
+              <span className="text-xl font-bold text-gray-800">{displayYear}年{displayMonth}月</span>
+              <button onClick={scrollToToday} className="px-3 py-1 text-sm bg-blue-100 hover:bg-blue-200 rounded text-blue-700">
+                今日
+              </button>
+              <button
+                onClick={onNavigateToSettings}
+                className="p-2 text-gray-600 hover:text-gray-800 hover:bg-gray-200 rounded"
+                title="設定"
+              >
+                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" />
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+                </svg>
+              </button>
+            </div>
           </div>
-          <button
-            onClick={onNavigateToSettings}
-            className="p-2 text-gray-600 hover:text-gray-800 hover:bg-gray-200 rounded"
-            title="設定"
-          >
-            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" />
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
-            </svg>
-          </button>
         </div>
+      </header>
 
+      <main className="max-w-full mx-auto px-4 sm:px-6 lg:px-8 py-4">
         {error && (
           <div className="mb-4 p-3 bg-red-100 text-red-700 rounded flex justify-between items-center">
             <span>{error}</span>
             <button onClick={() => setError('')} className="text-red-700 hover:text-red-900">✕</button>
           </div>
         )}
-
-        {/* 年月表示（スクロールで自動更新）+ 今日ボタン */}
-        <div className="mb-4 flex items-center gap-3">
-          <span className="text-xl font-bold text-gray-800">{displayYear}年{displayMonth}月</span>
-          <button onClick={scrollToToday} className="px-3 py-1 text-sm bg-blue-100 hover:bg-blue-200 rounded text-blue-700">
-            今日
-          </button>
-          <span className="text-xs text-gray-500">← 右スクロールで先の月を表示</span>
-        </div>
-        {/* デバッグ: カレンダー日数 */}
-        <div className="mb-2 p-2 bg-yellow-200 text-black text-sm font-bold">
-          DEBUG: calendarDays.length = {calendarDays.length} 日分生成済み |
-          開始: {calendarDays[0]?.dateStr || 'なし'} |
-          終了: {calendarDays[calendarDays.length - 1]?.dateStr || 'なし'} |
-          右にスクロールすると先の月が見えます
-        </div>
 
         {/* アクションボタン */}
         <div className="mb-4 flex items-center gap-2 flex-wrap">
@@ -532,12 +654,6 @@ export function ProjectPage({ projectId, onBack, onNavigateToSettings }: Project
           >
             削除 ({checkedTasks.size})
           </button>
-          <button
-            onClick={handleSortByStartDate}
-            className="px-4 py-2 bg-[#5B9BD5] text-white rounded-md hover:bg-[#4A8AC9] text-sm font-medium shadow-sm"
-          >
-            ソート
-          </button>
         </div>
 
         {/* テーブル */}
@@ -549,7 +665,7 @@ export function ProjectPage({ projectId, onBack, onNavigateToSettings }: Project
                   <div className="flex items-center gap-2">
                     <input
                       type="checkbox"
-                      checked={isAllSelected}
+                      checked={tasks.length > 0 && checkedTasks.size === tasks.length}
                       onChange={handleToggleAllTasks}
                       className="w-4 h-4 cursor-pointer accent-blue-500"
                       title="全選択/全解除"
@@ -594,17 +710,25 @@ export function ProjectPage({ projectId, onBack, onNavigateToSettings }: Project
                 })}
               </tr>
             </thead>
-            <tbody onDragOver={handleDragOver} onDragLeave={handleDragLeave} onDrop={(e) => handleDrop(e)}>
+            <tbody
+              onDragOver={handleDragOver}
+              onDragLeave={handleDragLeave}
+              onDrop={(e) => handleDrop(e)}
+            >
               {tasks.map((task, index) => {
-                const taskSelectedStart = selectedStartDate[task.id];
+                const taskStartDate = selectedStartDate[task.id];
                 const taskHoverDate = hoverDate[task.id];
                 const isChecked = checkedTasks.has(task.id);
-                const selectingTaskId = Object.keys(selectedStartDate).find(id => selectedStartDate[id] !== null);
+
+                const selectingTaskId = Object.keys(selectedStartDate).find(
+                  id => selectedStartDate[id] !== null && selectedStartDate[id] !== undefined
+                );
                 const isOtherTaskSelecting = selectingTaskId && selectingTaskId !== task.id;
-                const isThisTaskSelecting = taskSelectedStart !== null && taskSelectedStart !== undefined;
+
                 const isCompletedTask = task.isCompleted;
-                const rowBgClass = isThisTaskSelecting ? 'bg-blue-50' : isCompletedTask ? 'bg-gray-100' : 'bg-white';
+                const rowBgClass = isCompletedTask ? 'bg-gray-100' : 'bg-white';
                 const textColorClass = isCompletedTask ? 'text-gray-400' : '';
+
                 const isDragging = draggedTaskId === task.id;
                 const isDragOver = dragOverTaskId === task.id;
                 const isLastRow = index === tasks.length - 1;
@@ -613,7 +737,7 @@ export function ProjectPage({ projectId, onBack, onNavigateToSettings }: Project
                 const taskLevel = task.level ?? 0;
                 const isUnnestMode = dragMode === 'unnest' && draggedTaskId === task.id;
 
-                // 担当者情報（行全体で使用）
+                // 担当者情報
                 const taskMember = task.memberId ? members.find(m => m.id === task.memberId) : null;
                 const memberColor = taskMember?.color || null;
 
@@ -629,24 +753,32 @@ export function ProjectPage({ projectId, onBack, onNavigateToSettings }: Project
                   >
                     <td
                       className={`border-b border-gray-200 px-1 py-1 sticky left-0 ${isNestTarget ? 'bg-green-50' : isUnnestMode ? 'bg-amber-50' : rowBgClass} z-10 w-[140px] min-w-[140px] ${textColorClass}`}
-                      style={{ paddingLeft: `${8 + taskLevel * 16}px`, boxShadow: '1px 0 0 0 #e5e7eb' }}
+                      style={{
+                        paddingLeft: `${8 + taskLevel * 16}px`,
+                        boxShadow: '1px 0 0 0 #e5e7eb'
+                      }}
                     >
                       <div className="flex items-center gap-1">
                         {!isCompletedTask && (
-                          <span className="cursor-grab text-gray-400 hover:text-gray-600 flex-shrink-0" title="ドラッグして並び替え">⋮⋮</span>
+                          <span className="cursor-grab text-gray-400 hover:text-gray-600 flex-shrink-0" title="ドラッグして並び替え">
+                            ⋮⋮
+                          </span>
                         )}
                         <input
                           type="checkbox"
                           checked={isChecked}
-                          onChange={() => handleToggleTask(task.id)}
-                          onClick={(e) => handleToggleTask(task.id, e)}
-                          className="w-3.5 h-3.5 cursor-pointer accent-blue-500 flex-shrink-0"
+                          onClick={(e) => handleToggleTaskCheck(task.id, e)}
+                          onChange={() => {}}
+                          className="w-4 h-4 cursor-pointer flex-shrink-0"
                         />
                         {editingTaskId === task.id ? (
                           <input
                             type="text"
                             value={editingTaskName}
                             onChange={(e) => setEditingTaskName(e.target.value)}
+                            onCompositionStart={() => setIsComposing(true)}
+                            onCompositionEnd={() => setIsComposing(false)}
+                            onBlur={() => handleSaveTaskName(task.id)}
                             onKeyDown={(e) => {
                               if (e.key === 'Enter' && !isComposing) {
                                 e.preventDefault();
@@ -656,129 +788,134 @@ export function ProjectPage({ projectId, onBack, onNavigateToSettings }: Project
                                 setEditingTaskName('');
                               }
                             }}
-                            onCompositionStart={() => setIsComposing(true)}
-                            onCompositionEnd={() => setIsComposing(false)}
-                            onBlur={() => handleSaveTaskName(task.id)}
                             autoFocus
-                            className="text-xs px-1 py-0.5 border border-blue-400 rounded w-full min-w-0 focus:outline-none focus:ring-1 focus:ring-blue-400"
+                            className="flex-1 min-w-0 px-1 py-0 border border-blue-500 rounded focus:outline-none focus:ring-1 focus:ring-blue-500"
                           />
                         ) : (
-                          <div className="flex items-center gap-1 min-w-0">
-                            <span
-                              onClick={() => { if (!isCompletedTask) { setEditingTaskId(task.id); setEditingTaskName(task.name); } }}
-                              className={`text-xs truncate ${!isCompletedTask ? 'cursor-pointer hover:text-blue-600' : ''}`}
-                              title={task.name}
-                            >
-                              {task.name || '(未入力)'}
+                          <div
+                            onClick={() => { setEditingTaskId(task.id); setEditingTaskName(task.name); }}
+                            className="cursor-text min-h-[20px] flex items-center flex-1 min-w-0 overflow-hidden"
+                          >
+                            <span className="truncate">
+                              {task.name || <span className="text-gray-400">タスク名</span>}
                             </span>
-                            {isThisTaskSelecting && (
-                              <span
-                                className="text-[10px] bg-blue-500 text-white px-1 rounded flex-shrink-0 cursor-pointer"
-                                title={`開始: ${taskSelectedStart} - 終了日をクリック (キャンセル)`}
-                                onClick={(e) => {
-                                  e.stopPropagation();
-                                  setSelectedStartDate(prev => ({ ...prev, [task.id]: null }));
-                                }}
-                              >
-                                選択中
-                              </span>
-                            )}
                           </div>
                         )}
                       </div>
                     </td>
                     <td
-                      className={`border-b border-gray-200 px-1 py-1 sticky left-[140px] z-10 w-[100px] min-w-[100px]`}
+                      className={`border-b border-gray-200 px-1 py-1 text-center sticky left-[140px] z-10 w-[100px] min-w-[100px]`}
                       style={{
                         boxShadow: '1px 0 0 0 #e5e7eb',
-                        backgroundColor: memberColor || (isCompletedTask ? '#f3f4f6' : isThisTaskSelecting ? '#eff6ff' : '#ffffff'),
+                        backgroundColor: memberColor || (isCompletedTask ? '#f3f4f6' : '#ffffff'),
                       }}
                     >
                       <select
                         value={task.memberId || ''}
                         onChange={(e) => handleMemberChange(task.id, e.target.value || null)}
                         disabled={isCompletedTask}
-                        className="text-xs w-full px-1 py-0.5 border-0 rounded disabled:cursor-not-allowed font-medium"
-                        style={{
-                          backgroundColor: 'transparent',
-                          color: memberColor ? '#000' : '#374151',
-                        }}
+                        className="w-full px-0.5 py-0.5 text-xs border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-blue-500"
+                        style={{ backgroundColor: memberColor ? 'rgba(255,255,255,0.8)' : 'white' }}
                       >
-                        <option value="" style={{ backgroundColor: 'white' }}>未割当</option>
+                        <option value="">--</option>
                         {members.map(m => (
-                          <option key={m.id} value={m.id} style={{ backgroundColor: m.color || 'white' }}>{m.name}</option>
+                          <option key={m.id} value={m.id}>{m.name}</option>
                         ))}
                       </select>
                     </td>
                     {calendarDays.map((calDay, idx) => {
                       const dateStr = calDay.dateStr;
-                      const hasStart = task.startDate && task.startDate <= dateStr;
-                      const hasEnd = task.endDate && task.endDate >= dateStr;
-                      const isInRange = hasStart && hasEnd;
-                      const isStartDate = task.startDate === dateStr;
-                      const isEndDate = task.endDate === dateStr;
                       const date = new Date(calDay.year, calDay.month - 1, calDay.day);
-                      const isSunday = date.getDay() === 0;
-                      const isSaturday = date.getDay() === 6;
+                      const isWeekend = date.getDay() === 0 || date.getDay() === 6;
                       const holidaysForMonth = holidaysMap.get(`${calDay.year}-${calDay.month}`);
-                      const holidayName = holidaysForMonth?.get(calDay.day);
-                      const isHoliday = !!holidayName;
-                      const isNonWorkday = isSunday || isSaturday || isHoliday;
+                      const isHoliday = !!holidaysForMonth?.get(calDay.day);
+                      const isNonWorkday = isWeekend || isHoliday;
+                      const inRange = isDateInRange(task, dateStr);
+                      const isStartDay = taskStartDate === dateStr;
 
-                      let isSelecting = false;
-                      let isInSelectRange = false;
-                      if (taskSelectedStart) {
-                        isSelecting = dateStr === taskSelectedStart;
-                        if (taskHoverDate) {
-                          const rangeStart = taskSelectedStart < taskHoverDate ? taskSelectedStart : taskHoverDate;
-                          const rangeEnd = taskSelectedStart < taskHoverDate ? taskHoverDate : taskSelectedStart;
-                          isInSelectRange = dateStr >= rangeStart && dateStr <= rangeEnd;
-                        }
-                      }
+                      const isSelectingEndDay = taskStartDate !== null && taskStartDate !== undefined;
+                      const isBeforeStartDay = isSelectingEndDay && dateStr < taskStartDate;
 
-                      const parentTask = task.parentId ? tasks.find(t => t.id === task.parentId) : null;
-                      let isDisabled = isCompletedTask || !!isOtherTaskSelecting;
-                      if (parentTask) {
-                        if (parentTask.startDate && dateStr < parentTask.startDate) isDisabled = true;
-                        if (parentTask.endDate && dateStr > parentTask.endDate) isDisabled = true;
-                      }
+                      const isInPreviewRange =
+                        isSelectingEndDay &&
+                        taskHoverDate !== null &&
+                        taskHoverDate !== undefined &&
+                        taskHoverDate >= taskStartDate &&
+                        dateStr >= taskStartDate &&
+                        dateStr <= taskHoverDate;
 
-                      const barColor = memberColor || '#5B9BD5';
+                      const isRangeStart = inRange && task.startDate === dateStr;
+                      const isRangeEnd = inRange && task.endDate === dateStr;
+
+                      const isCellDisabled = isCompletedTask || !!isOtherTaskSelecting || isBeforeStartDay;
+
+                      // バーの色（担当者色またはデフォルト）
+                      const barColor = memberColor || '#85c1e9';
 
                       return (
                         <td
                           key={idx}
-                          className={`border-r border-b border-gray-200 w-[53px] min-w-[53px] h-8 p-0 ${isNonWorkday ? 'bg-gray-50' : rowBgClass} ${isDisabled ? 'cursor-not-allowed' : 'cursor-pointer'} ${calDay.isFirstDayOfMonth ? 'border-l-2 border-l-gray-300' : ''}`}
-                          onClick={() => !isDisabled && handleDayClick(task.id, dateStr)}
-                          onMouseEnter={() => handleDayMouseEnter(task.id, dateStr)}
-                          onMouseLeave={() => handleDayMouseLeave(task.id)}
+                          className={`border-b border-r border-gray-200 px-0.5 py-1 text-center w-[53px] min-w-[53px] ${
+                            isNonWorkday ? 'bg-gray-100' : ''
+                          } ${
+                            isCellDisabled ? 'cursor-not-allowed' : 'cursor-pointer'
+                          } ${calDay.isFirstDayOfMonth ? 'border-l-2 border-l-gray-300' : ''}`}
+                          onClick={() => !isCellDisabled && handleCellClick(task.id, dateStr)}
+                          onMouseEnter={() => !isCellDisabled && setHoverDate({ ...hoverDate, [task.id]: dateStr })}
+                          onMouseLeave={() => !isCellDisabled && setHoverDate({ ...hoverDate, [task.id]: null })}
                         >
-                          <div className="relative w-full h-full flex items-center justify-center">
-                            {isInRange && (
-                              <div
-                                className="absolute top-1/2 -translate-y-1/2 h-4"
-                                style={{
-                                  backgroundColor: barColor,
-                                  opacity: isCompletedTask ? 0.4 : 0.8,
-                                  left: isStartDate ? '50%' : 0,
-                                  right: isEndDate ? '50%' : 0,
-                                }}
-                              />
-                            )}
-                            {(isSelecting || isInSelectRange) && (
-                              <div className="absolute inset-0 bg-blue-200 opacity-50" />
-                            )}
-                          </div>
+                          <div
+                            className={`h-5 ${
+                              isCompletedTask ? 'bg-gray-50' : ''
+                            } ${
+                              !isCompletedTask && isStartDay
+                                ? 'rounded animate-pulse'
+                                : !isCompletedTask && isInPreviewRange
+                                ? 'rounded animate-pulse'
+                                : !isCompletedTask && inRange
+                                ? `${isRangeStart ? 'rounded-l' : ''} ${isRangeEnd ? 'rounded-r' : ''}`
+                                : ''
+                            }`}
+                            style={
+                              !isCompletedTask && (isStartDay || isInPreviewRange || inRange)
+                                ? { backgroundColor: barColor }
+                                : undefined
+                            }
+                          />
                         </td>
                       );
                     })}
                   </tr>
                 );
               })}
+              {tasks.length === 0 && (
+                <tr>
+                  <td
+                    colSpan={calendarDays.length + 2}
+                    className="border border-gray-300 px-4 py-8 text-center text-gray-500"
+                  >
+                    タスクがありません。「タスク追加」ボタンから追加してください。
+                  </td>
+                </tr>
+              )}
+              <tr
+                onClick={() => {
+                  setEditingTaskId(null);
+                  setTimeout(() => handleAddTask(), 0);
+                }}
+                className="cursor-pointer hover:bg-gray-50 transition-colors"
+              >
+                <td
+                  colSpan={calendarDays.length + 2}
+                  className="border-b border-r border-gray-200 px-4 py-3 text-center text-gray-400 text-sm"
+                >
+                  + クリックしてタスクを追加
+                </td>
+              </tr>
             </tbody>
           </table>
         </div>
-      </div>
+      </main>
     </div>
   );
 }
