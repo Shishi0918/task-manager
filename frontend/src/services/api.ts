@@ -38,10 +38,10 @@ const getAuthHeaders = (): HeadersInit => {
 const handleResponse = async <T>(response: Response): Promise<T> => {
   if (!response.ok) {
     const error = await response.json().catch(() => ({ error: 'Unknown error' }));
-    throw new ApiError(
-      error.error || 'Request failed',
-      response.status
-    );
+    const errorMessage = typeof error.error === 'string'
+      ? error.error
+      : (error.error ? JSON.stringify(error.error) : 'Request failed');
+    throw new ApiError(errorMessage, response.status);
   }
   if (response.status === 204) {
     return {} as T;

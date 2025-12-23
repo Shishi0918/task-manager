@@ -23,7 +23,7 @@ const memberSchema = z.object({
 });
 
 const taskSchema = z.object({
-  name: z.string().min(1),
+  name: z.string(),
   memberId: z.string().uuid().nullable().optional(),
   parentId: z.string().uuid().nullable().optional(),
   startDate: z.string().nullable().optional(),
