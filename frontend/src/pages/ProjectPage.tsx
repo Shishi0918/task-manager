@@ -393,6 +393,24 @@ export function ProjectPage({ projectId, onBack, onNavigateToSettings }: Project
     setLastCheckedTaskId(taskId);
   };
 
+  // 子タスクを再帰的に取得
+  const getDescendantIds = (parentIds: Set<string>): Set<string> => {
+    const descendants = new Set<string>();
+    const findChildren = (ids: Set<string>) => {
+      for (const id of ids) {
+        const children = tasks.filter(t => t.parentId === id);
+        for (const child of children) {
+          if (!descendants.has(child.id)) {
+            descendants.add(child.id);
+            findChildren(new Set([child.id]));
+          }
+        }
+      }
+    };
+    findChildren(parentIds);
+    return descendants;
+  };
+
   // 完了切り替え
   const handleCompleteSelected = async () => {
     if (checkedTasks.size === 0) return;
@@ -400,13 +418,20 @@ export function ProjectPage({ projectId, onBack, onNavigateToSettings }: Project
     const allCompleted = checkedTaskObjects.every(t => t.isCompleted);
     const newIsCompleted = !allCompleted;
 
+    // 完了にする場合は子タスクも含める
+    let targetIds = new Set(checkedTasks);
+    if (newIsCompleted) {
+      const descendantIds = getDescendantIds(checkedTasks);
+      targetIds = new Set([...checkedTasks, ...descendantIds]);
+    }
+
     setTasks(prev => prev.map(t =>
-      checkedTasks.has(t.id) ? { ...t, isCompleted: newIsCompleted } : t
+      targetIds.has(t.id) ? { ...t, isCompleted: newIsCompleted } : t
     ));
 
     try {
       await Promise.all(
-        Array.from(checkedTasks).map(id =>
+        Array.from(targetIds).map(id =>
           projectApi.updateTask(projectId, id, { isCompleted: newIsCompleted })
         )
       );
@@ -448,6 +473,80 @@ export function ProjectPage({ projectId, onBack, onNavigateToSettings }: Project
       setError(err instanceof Error ? err.message : 'ソートに失敗しました');
       fetchData();
     }
+  };
+
+  // CSVダウンロード
+  const handleCsvDownload = () => {
+    const headers = ['タスク名', '担当者', '開始日', '終了日', '完了'];
+    const rows = tasks.map(task => {
+      const member = members.find(m => m.id === task.memberId);
+      return [
+        task.name,
+        member?.name || '',
+        task.startDate || '',
+        task.endDate || '',
+        task.isCompleted ? '完了' : ''
+      ];
+    });
+
+    const csvContent = [headers, ...rows]
+      .map(row => row.map(cell => `"${(cell || '').replace(/"/g, '""')}"`).join(','))
+      .join('\n');
+
+    const bom = '\uFEFF';
+    const blob = new Blob([bom + csvContent], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = `${project?.name || 'project'}_tasks.csv`;
+    link.click();
+    URL.revokeObjectURL(url);
+  };
+
+  // CSVインポート
+  const handleCsvImport = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    const text = await file.text();
+    const lines = text.split('\n').filter(line => line.trim());
+    if (lines.length < 2) {
+      setError('CSVファイルにデータがありません');
+      return;
+    }
+
+    // ヘッダー行をスキップ
+    const dataLines = lines.slice(1);
+    const maxOrder = tasks.length > 0 ? Math.max(...tasks.map(t => t.displayOrder)) : 0;
+
+    try {
+      for (let i = 0; i < dataLines.length; i++) {
+        const cells = dataLines[i].split(',').map(cell =>
+          cell.replace(/^"/, '').replace(/"$/, '').replace(/""/g, '"').trim()
+        );
+        const [name, memberName, startDate, endDate, completed] = cells;
+        if (!name) continue;
+
+        const member = members.find(m => m.name === memberName);
+        const result = await projectApi.createTask(projectId, {
+          name,
+          displayOrder: maxOrder + i + 1,
+          memberId: member?.id || null,
+          startDate: startDate || null,
+          endDate: endDate || null,
+        });
+        // 完了状態を更新
+        if (completed === '完了') {
+          await projectApi.updateTask(projectId, result.task.id, { isCompleted: true });
+        }
+      }
+      await fetchData();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'CSVインポートに失敗しました');
+    }
+
+    // ファイル入力をリセット
+    e.target.value = '';
   };
 
   // 日付範囲内判定
@@ -786,10 +885,25 @@ export function ProjectPage({ projectId, onBack, onNavigateToSettings }: Project
           </button>
           <button
             onClick={handleSortByStartDate}
-            className="px-4 py-2 bg-amber-500 text-white rounded-md hover:bg-amber-600 text-sm font-medium shadow-sm"
+            className="px-4 py-2 bg-[#5B9BD5] text-white rounded-md hover:bg-[#4A8AC9] text-sm font-medium shadow-sm"
           >
             ソート
           </button>
+          <button
+            onClick={handleCsvDownload}
+            className="px-4 py-2 bg-[#5B9BD5] text-white rounded-md hover:bg-[#4A8AC9] text-sm font-medium shadow-sm"
+          >
+            CSVダウンロード
+          </button>
+          <label className="px-4 py-2 bg-[#5B9BD5] text-white rounded-md hover:bg-[#4A8AC9] text-sm font-medium shadow-sm cursor-pointer">
+            CSVインポート
+            <input
+              type="file"
+              accept=".csv"
+              onChange={handleCsvImport}
+              className="hidden"
+            />
+          </label>
         </div>
 
         {/* テーブル */}
@@ -907,7 +1021,7 @@ export function ProjectPage({ projectId, onBack, onNavigateToSettings }: Project
                           onChange={() => {}}
                           className="w-4 h-4 cursor-pointer flex-shrink-0"
                         />
-                        {editingTaskId === task.id ? (
+                        {editingTaskId === task.id && !isCompletedTask ? (
                           <TaskNameInput
                             taskId={task.id}
                             initialName={task.name}
@@ -916,8 +1030,8 @@ export function ProjectPage({ projectId, onBack, onNavigateToSettings }: Project
                           />
                         ) : (
                           <div
-                            onClick={() => setEditingTaskId(task.id)}
-                            className="cursor-text min-h-[20px] flex items-center flex-1 min-w-0 overflow-hidden"
+                            onClick={() => !isCompletedTask && setEditingTaskId(task.id)}
+                            className={`min-h-[20px] flex items-center flex-1 min-w-0 overflow-hidden ${isCompletedTask ? 'cursor-default' : 'cursor-text'}`}
                           >
                             <span className="truncate">
                               {task.name || <span className="text-gray-400">タスク名</span>}
