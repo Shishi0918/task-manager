@@ -461,6 +461,21 @@ export function ProjectPage({ projectId, onBack, onNavigateToSettings }: Project
     const task = tasks.find(t => t.id === taskId);
     if (!task || task.isCompleted) return;
 
+    // 親タスクの日付範囲をチェック
+    if (task.parentId) {
+      const parentTask = tasks.find(t => t.id === task.parentId);
+      if (parentTask) {
+        // 親に日付範囲がない場合は子も日付設定不可
+        if (!parentTask.startDate || !parentTask.endDate) {
+          return;
+        }
+        // クリックした日が親の範囲外なら無視
+        if (dateStr < parentTask.startDate || dateStr > parentTask.endDate) {
+          return;
+        }
+      }
+    }
+
     const currentStartDate = selectedStartDate[taskId];
 
     // 既に確定した範囲内をクリックした場合はクリア
