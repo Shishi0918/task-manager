@@ -622,3 +622,47 @@ export const bulkDeleteTasks = async (
     res.status(500).json({ error: 'Internal server error' });
   }
 };
+
+// Bulk update tasks
+export const bulkUpdateTasks = async (
+  req: AuthRequest,
+  res: Response
+): Promise<void> => {
+  try {
+    const { id } = req.params;
+    const { updates } = req.body as {
+      updates: Array<{
+        id: string;
+        displayOrder?: number;
+        isCompleted?: boolean;
+      }>;
+    };
+
+    const project = await prisma.project.findFirst({
+      where: { id, userId: req.userId! },
+    });
+
+    if (!project) {
+      res.status(404).json({ error: 'Project not found' });
+      return;
+    }
+
+    // トランザクションで一括更新
+    await prisma.$transaction(
+      updates.map((update) =>
+        prisma.projectTask.update({
+          where: { id: update.id },
+          data: {
+            ...(update.displayOrder !== undefined && { displayOrder: update.displayOrder }),
+            ...(update.isCompleted !== undefined && { isCompleted: update.isCompleted }),
+          },
+        })
+      )
+    );
+
+    res.json({ message: 'Tasks updated successfully', count: updates.length });
+  } catch (error) {
+    console.error('Bulk update tasks error:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+};

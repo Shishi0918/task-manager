@@ -813,4 +813,16 @@ export const projectApi = {
     });
     return handleResponse<{ message: string; count: number }>(response);
   },
+
+  bulkUpdateTasks: async (
+    projectId: string,
+    updates: Array<{ id: string; displayOrder?: number; isCompleted?: boolean }>
+  ): Promise<{ message: string; count: number }> => {
+    const response = await fetch(`${API_URL}/api/projects/${projectId}/tasks/bulk-update`, {
+      method: 'POST',
+      headers: getAuthHeaders(),
+      body: JSON.stringify({ updates }),
+    });
+    return handleResponse<{ message: string; count: number }>(response);
+  },
 };

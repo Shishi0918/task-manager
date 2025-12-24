@@ -2,6 +2,7 @@ import { useState, useEffect, useMemo, useCallback, useRef, memo } from 'react';
 import { projectApi } from '../services/api';
 import type { ProjectTask, ProjectDetail, ProjectMember } from '../types';
 import { getHolidaysForMonth } from '../utils/holidays';
+import { sortTasksByStartDate } from '../utils/taskSort';
 
 // タスク名入力コンポーネント（独立させて再レンダリングを防ぐ）
 const TaskNameInput = memo(function TaskNameInput({
@@ -432,6 +433,23 @@ export function ProjectPage({ projectId, onBack, onNavigateToSettings }: Project
     }
   };
 
+  // 開始日でソート
+  const handleSortByStartDate = async () => {
+    const sorted = sortTasksByStartDate(tasks);
+    setTasks(sorted);
+
+    try {
+      const updates = sorted.map((task, i) => ({
+        id: task.id,
+        displayOrder: i + 1,
+      }));
+      await projectApi.bulkUpdateTasks(projectId, updates);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'ソートに失敗しました');
+      fetchData();
+    }
+  };
+
   // 日付範囲内判定
   const isDateInRange = (task: ProjectTask, dateStr: string): boolean => {
     if (!task.startDate || !task.endDate) return false;
@@ -750,6 +768,12 @@ export function ProjectPage({ projectId, onBack, onNavigateToSettings }: Project
             }`}
           >
             削除 ({checkedTasks.size})
+          </button>
+          <button
+            onClick={handleSortByStartDate}
+            className="px-4 py-2 bg-amber-500 text-white rounded-md hover:bg-amber-600 text-sm font-medium shadow-sm"
+          >
+            ソート
           </button>
         </div>
 

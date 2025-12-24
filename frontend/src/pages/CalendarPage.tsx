@@ -5,6 +5,7 @@ import { TaskModal } from '../components/TaskModal';
 import { AccountMenu } from '../components/AccountMenu';
 import { useAuth } from '../contexts/AuthContext';
 import { getHolidaysForMonth } from '../utils/holidays';
+import { sortTasksByStartDate } from '../utils/taskSort';
 
 // 階層タスクをフラット化する関数
 const flattenTasks = (
@@ -1300,64 +1301,8 @@ export const CalendarPage = ({ onNavigateToTemplateCreator, onNavigateToYearlyTa
   };
 
   const handleSortByStartDate = async () => {
-    // 階層構造を保持したソート
-    const sortHierarchically = (
-      taskList: TaskWithCompletions[],
-      compareFn: (a: TaskWithCompletions, b: TaskWithCompletions) => number
-    ): TaskWithCompletions[] => {
-      // ルートタスク（parentIdがnull）を取得
-      const rootTasks = taskList.filter(t => !t.parentId);
-
-      // 子タスクをparentIdでグループ化
-      const childrenMap = new Map<string, TaskWithCompletions[]>();
-      taskList.forEach(t => {
-        if (t.parentId) {
-          const children = childrenMap.get(t.parentId) || [];
-          children.push(t);
-          childrenMap.set(t.parentId, children);
-        }
-      });
-
-      // 再帰的にソートしてフラット化
-      const sortAndFlatten = (tasksToSort: TaskWithCompletions[]): TaskWithCompletions[] => {
-        const sorted = [...tasksToSort].sort(compareFn);
-        const result: TaskWithCompletions[] = [];
-
-        for (const task of sorted) {
-          result.push(task);
-          const children = childrenMap.get(task.id);
-          if (children && children.length > 0) {
-            result.push(...sortAndFlatten(children));
-          }
-        }
-        return result;
-      };
-
-      return sortAndFlatten(rootTasks);
-    };
-
-    // 未完了タスクと完了タスクを分ける
-    const incompleteTasks = tasks.filter(t => !t.isCompleted);
-    const completedTasks = tasks.filter(t => t.isCompleted);
-
-    // 未完了タスクのみを階層ソート
-    const sortedIncomplete = sortHierarchically(incompleteTasks, (a, b) => {
-      if (!a.startDate && !b.startDate) return 0;
-      if (!a.startDate) return 1;
-      if (!b.startDate) return -1;
-      return a.startDate.localeCompare(b.startDate);
-    });
-
-    // 完了タスクも階層ソート（完了日や元の順序を維持）
-    const sortedCompleted = sortHierarchically(completedTasks, (a, b) => {
-      return a.displayOrder - b.displayOrder;
-    });
-
-    // 結合してdisplayOrderを更新
-    const sorted = [...sortedIncomplete, ...sortedCompleted].map((task, i) => ({
-      ...task,
-      displayOrder: i + 1,
-    }));
+    // 共通ユーティリティでソート
+    const sorted = sortTasksByStartDate(tasks);
 
     // ローカル状態を即座に更新（楽観的更新）
     setTasks(sorted);
