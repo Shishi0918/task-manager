@@ -192,44 +192,31 @@ export function ProjectPage({ projectId, onBack, onNavigateToSettings }: Project
       setProject(projectData.project);
       setMembers(projectData.project.members || []);
 
-      const allTasks = projectData.project.tasks || [];
+      // APIから返されたタスクをそのまま使う（階層処理なし）
+      const allTasks: ProjectTask[] = projectData.project.tasks || [];
 
-      // IDで重複排除（APIが重複を返す場合の対策）
-      const taskMap = new Map<string, ProjectTask>();
-      allTasks.forEach(t => taskMap.set(t.id, t));
-      const uniqueTasks = Array.from(taskMap.values());
+      // デバッグ: APIレスポンスを確認
+      console.log('API Response tasks:', allTasks.length, allTasks.map(t => ({ id: t.id, name: t.name, parentId: t.parentId })));
 
-      // parentIdを使って子タスクをグループ化
-      const childrenByParent = new Map<string, ProjectTask[]>();
-      uniqueTasks.forEach(t => {
-        if (t.parentId) {
-          const siblings = childrenByParent.get(t.parentId) || [];
-          siblings.push(t);
-          childrenByParent.set(t.parentId, siblings);
+      // IDで重複排除
+      const seen = new Set<string>();
+      const uniqueTasks = allTasks.filter(t => {
+        if (seen.has(t.id)) {
+          console.log('Duplicate found:', t.id, t.name);
+          return false;
         }
+        seen.add(t.id);
+        return true;
       });
 
-      // 各グループをdisplayOrderでソート
-      childrenByParent.forEach(children => {
-        children.sort((a, b) => a.displayOrder - b.displayOrder);
-      });
+      console.log('After dedup:', uniqueTasks.length);
 
-      // ルートタスクから再帰的にフラット化
-      const buildFlatList = (parentId: string | null, level: number): ProjectTask[] => {
-        const tasksAtLevel = parentId === null
-          ? uniqueTasks.filter(t => !t.parentId).sort((a, b) => a.displayOrder - b.displayOrder)
-          : childrenByParent.get(parentId) || [];
+      // displayOrderでソート、levelは全て0（階層表示なし）
+      const sortedTasks = uniqueTasks
+        .sort((a, b) => a.displayOrder - b.displayOrder)
+        .map(t => ({ ...t, level: 0 }));
 
-        const result: ProjectTask[] = [];
-        for (const task of tasksAtLevel) {
-          result.push({ ...task, level });
-          result.push(...buildFlatList(task.id, level + 1));
-        }
-        return result;
-      };
-
-      const flattenedTasks = buildFlatList(null, 0);
-      setTasks(flattenedTasks);
+      setTasks(sortedTasks);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'データの取得に失敗しました');
     } finally {
@@ -1011,7 +998,7 @@ export function ProjectPage({ projectId, onBack, onNavigateToSettings }: Project
           <table ref={tableRef} className="border-collapse inline-block align-top">
             <thead className="sticky top-0 z-20">
               <tr>
-                <th className="px-2 py-3 bg-[#5B9BD5] text-white sticky left-0 z-30 w-[140px] min-w-[140px] font-medium" style={{ boxShadow: '1px 0 0 0 #d1d5db' }}>
+                <th className="px-2 py-3 bg-[#5B9BD5] text-white sticky left-0 z-30 w-[240px] font-medium" style={{ boxShadow: '1px 0 0 0 #d1d5db' }}>
                   <div className="flex items-center gap-2">
                     <input
                       type="checkbox"
@@ -1023,7 +1010,7 @@ export function ProjectPage({ projectId, onBack, onNavigateToSettings }: Project
                     <span className="text-sm">タスク</span>
                   </div>
                 </th>
-                <th className="px-2 py-2 text-xs font-medium bg-[#5B9BD5] text-white sticky left-[140px] z-30 w-[100px] min-w-[100px]" style={{ boxShadow: '1px 0 0 0 #d1d5db' }}>
+                <th className="px-2 py-2 text-xs font-medium bg-[#5B9BD5] text-white w-[100px] min-w-[100px]" style={{ boxShadow: '1px 0 0 0 #d1d5db' }}>
                   担当者
                 </th>
                 {calendarDays.map((calDay, idx) => {
@@ -1102,7 +1089,7 @@ export function ProjectPage({ projectId, onBack, onNavigateToSettings }: Project
                     onDragEnd={handleDragEnd}
                   >
                     <td
-                      className={`border-b border-gray-200 px-1 py-1 sticky left-0 ${isNestTarget ? 'bg-green-50' : isUnnestMode ? 'bg-amber-50' : rowBgClass} z-10 w-[140px] min-w-[140px] ${textColorClass}`}
+                      className={`border-b border-gray-200 px-1 py-1 sticky left-0 ${isNestTarget ? 'bg-green-50' : isUnnestMode ? 'bg-amber-50' : rowBgClass} z-10 w-[240px] overflow-hidden ${textColorClass}`}
                       style={{
                         paddingLeft: `${8 + taskLevel * 16}px`,
                         boxShadow: '1px 0 0 0 #e5e7eb'
@@ -1131,9 +1118,9 @@ export function ProjectPage({ projectId, onBack, onNavigateToSettings }: Project
                         ) : (
                           <div
                             onClick={() => !isCompletedTask && setEditingTaskId(task.id)}
-                            className={`min-h-[20px] flex items-center flex-1 min-w-0 overflow-hidden ${isCompletedTask ? 'cursor-default' : 'cursor-text'}`}
+                            className={`min-h-[20px] flex items-center flex-1 ${isCompletedTask ? 'cursor-default' : 'cursor-text'}`}
                           >
-                            <span className="truncate">
+                            <span className="whitespace-nowrap">
                               {task.name || <span className="text-gray-400">タスク名</span>}
                             </span>
                           </div>
@@ -1141,7 +1128,7 @@ export function ProjectPage({ projectId, onBack, onNavigateToSettings }: Project
                       </div>
                     </td>
                     <td
-                      className={`border-b border-gray-200 px-1 py-1 text-center sticky left-[140px] z-10 w-[100px] min-w-[100px]`}
+                      className={`border-b border-gray-200 px-1 py-1 text-center w-[100px] min-w-[100px]`}
                       style={{
                         boxShadow: '1px 0 0 0 #e5e7eb',
                         backgroundColor: memberColor || (isCompletedTask ? '#f3f4f6' : '#ffffff'),
