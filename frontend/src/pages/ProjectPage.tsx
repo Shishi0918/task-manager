@@ -300,6 +300,8 @@ export function ProjectPage({ projectId, onBack, onNavigateToSettings }: Project
       });
       // 仮ID→実IDのマッピングを保存
       tempIdMapRef.current.set(tempId, result.task.id);
+      // 編集中のタスクIDも更新（入力中に勝手に閉じないようにする）
+      setEditingTaskId(prev => prev === tempId ? result.task.id : prev);
       // 仮IDを実際のIDに置換（ローカルで変更された名前は保持する）
       setTasks(prev => prev.map(t => {
         if (t.id === tempId) {
