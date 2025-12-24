@@ -126,6 +126,9 @@ export function ProjectPage({ projectId, onBack, onNavigateToSettings }: Project
   const tableRef = useRef<HTMLTableElement>(null);
   const scrollContainerRef = useRef<HTMLDivElement>(null);
 
+  // 仮ID → 実IDのマッピング
+  const tempIdMapRef = useRef<Map<string, string>>(new Map());
+
   // 表示中の年月
   const [displayYear, setDisplayYear] = useState(new Date().getFullYear());
   const [displayMonth, setDisplayMonth] = useState(new Date().getMonth() + 1);
@@ -295,28 +298,74 @@ export function ProjectPage({ projectId, onBack, onNavigateToSettings }: Project
     }
   }, [shouldAddNewTask]);
 
-  // タスク追加
+  // タスク追加（楽観的UI: API待ち前に表示）
   const handleAddTask = async () => {
+    const tempId = `temp-${Date.now()}`;
+    const maxOrder = tasks.length > 0 ? Math.max(...tasks.map(t => t.displayOrder)) : 0;
+    const newTask: ProjectTask = {
+      id: tempId,
+      projectId,
+      name: '',
+      displayOrder: maxOrder + 1,
+      isCompleted: false,
+      level: 0,
+      startDate: null,
+      endDate: null,
+      memberId: null,
+      parentId: null,
+      children: [],
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    };
+
+    // 即座に画面に追加
+    setTasks(prev => [...prev, newTask]);
+    setEditingTaskId(tempId);
+
+    // バックグラウンドでAPI呼び出し
     try {
-      const maxOrder = tasks.length > 0 ? Math.max(...tasks.map(t => t.displayOrder)) : 0;
       const result = await projectApi.createTask(projectId, {
         name: '',
         displayOrder: maxOrder + 1,
       });
-      setTasks(prev => [...prev, { ...result.task, level: 0 }]);
-      setEditingTaskId(result.task.id);
+      // 仮ID→実IDのマッピングを保存
+      tempIdMapRef.current.set(tempId, result.task.id);
+      // 仮IDを実際のIDに置換（editingTaskIdは変更しない - 入力中のため）
+      setTasks(prev => prev.map(t => t.id === tempId ? { ...result.task, level: 0 } : t));
     } catch (err) {
+      // 失敗時は仮タスクを削除
+      setTasks(prev => prev.filter(t => t.id !== tempId));
+      setEditingTaskId(null);
       setError(err instanceof Error ? err.message : 'タスクの追加に失敗しました');
     }
   };
 
   // タスク名保存
   const handleSaveTaskName = useCallback(async (taskId: string, name: string) => {
-    try {
-      await projectApi.updateTask(projectId, taskId, { name });
-      setTasks(prev => prev.map(t => t.id === taskId ? { ...t, name } : t));
-      setLastSavedTaskId(taskId);
+    // まだAPIが完了していない場合（仮ID→実IDのマッピングがない）は少し待つ
+    if (taskId.startsWith('temp-') && !tempIdMapRef.current.has(taskId)) {
+      // 最大2秒待機
+      for (let i = 0; i < 20; i++) {
+        await new Promise(resolve => setTimeout(resolve, 100));
+        if (tempIdMapRef.current.has(taskId)) break;
+      }
+    }
+
+    const finalId = tempIdMapRef.current.get(taskId) || taskId;
+
+    // 仮IDが解決されなかった場合（エラーで消えた等）
+    if (finalId.startsWith('temp-')) {
       setEditingTaskId(null);
+      return;
+    }
+
+    try {
+      await projectApi.updateTask(projectId, finalId, { name });
+      setTasks(prev => prev.map(t => (t.id === taskId || t.id === finalId) ? { ...t, name } : t));
+      setLastSavedTaskId(finalId);
+      setEditingTaskId(null);
+      // マッピングをクリーンアップ
+      tempIdMapRef.current.delete(taskId);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'タスク名の保存に失敗しました');
     }
