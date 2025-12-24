@@ -145,6 +145,17 @@ export const taskApi = {
     );
     return handleResponse<{ message: string; count: number; nextYear: number; nextMonth: number }>(response);
   },
+
+  bulkUpdate: async (
+    updates: Array<{ id: string; displayOrder?: number; isCompleted?: boolean }>
+  ): Promise<{ message: string; count: number }> => {
+    const response = await fetch(`${API_URL}/api/tasks/bulk-update`, {
+      method: 'POST',
+      headers: getAuthHeaders(),
+      body: JSON.stringify({ updates }),
+    });
+    return handleResponse<{ message: string; count: number }>(response);
+  },
 };
 
 // Completion API

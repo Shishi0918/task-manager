@@ -329,3 +329,47 @@ export const carryForwardTasks = async (
     res.status(500).json({ error: 'Internal server error' });
   }
 };
+
+// 一括更新用スキーマ
+const bulkUpdateSchema = z.object({
+  updates: z.array(z.object({
+    id: z.string().uuid(),
+    displayOrder: z.number().int().positive().optional(),
+    isCompleted: z.boolean().optional(),
+  })),
+});
+
+// 一括更新API（ソート時などに使用）
+export const bulkUpdateTasks = async (req: AuthRequest, res: Response): Promise<void> => {
+  try {
+    const parseResult = bulkUpdateSchema.safeParse(req.body);
+
+    if (!parseResult.success) {
+      res.status(400).json({ error: 'Invalid request body', details: parseResult.error.issues });
+      return;
+    }
+
+    const { updates } = parseResult.data;
+
+    // トランザクションで一括更新
+    await prisma.$transaction(
+      updates.map((update) =>
+        prisma.task.update({
+          where: {
+            id: update.id,
+            userId: req.userId!, // セキュリティ: 自分のタスクのみ更新可能
+          },
+          data: {
+            ...(update.displayOrder !== undefined && { displayOrder: update.displayOrder }),
+            ...(update.isCompleted !== undefined && { isCompleted: update.isCompleted }),
+          },
+        })
+      )
+    );
+
+    res.json({ message: 'Tasks updated successfully', count: updates.length });
+  } catch (error) {
+    console.error('Bulk update tasks error:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+};

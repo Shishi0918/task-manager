@@ -1362,11 +1362,13 @@ export const CalendarPage = ({ onNavigateToTemplateCreator, onNavigateToYearlyTa
     // ローカル状態を即座に更新（楽観的更新）
     setTasks(sorted);
 
-    // 各タスクのdisplayOrderを更新（順次実行でDB接続プール枯渇を防止）
+    // 一括更新APIで全タスクのdisplayOrderを更新（1リクエストで完了）
     try {
-      for (let i = 0; i < sorted.length; i++) {
-        await taskApi.updateTask(sorted[i].id, { displayOrder: i + 1 });
-      }
+      const updates = sorted.map((task, i) => ({
+        id: task.id,
+        displayOrder: i + 1,
+      }));
+      await taskApi.bulkUpdate(updates);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'ソートに失敗しました');
       // エラー時はデータを再取得

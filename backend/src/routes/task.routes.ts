@@ -5,6 +5,7 @@ import {
   updateTask,
   deleteTask,
   carryForwardTasks,
+  bulkUpdateTasks,
 } from '../controllers/task.controller.js';
 import { authMiddleware } from '../middleware/auth.js';
 
@@ -15,6 +16,7 @@ router.use(authMiddleware);
 router.get('/', getTasks);
 router.post('/', createTask);
 router.post('/carry-forward', carryForwardTasks);
+router.post('/bulk-update', bulkUpdateTasks);
 router.put('/:id', updateTask);
 router.delete('/:id', deleteTask);
 
