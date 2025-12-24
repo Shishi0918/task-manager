@@ -27,7 +27,7 @@ export const getCompletions = async (
     const startDate = new Date(yearNum, monthNum - 1, 1);
     const endDate = new Date(yearNum, monthNum, 0);
 
-    // ユーザーのタスクを取得（親子関係を含む）
+    // タスクをフラットに取得（ネストなし、軽量クエリ）
     const tasks = await prisma.task.findMany({
       where: {
         userId: req.userId!,
@@ -46,43 +46,13 @@ export const getCompletions = async (
             },
           },
         },
-        children: {
-          where: { isActive: true },
-          orderBy: { displayOrder: 'asc' },
-          include: {
-            completions: {
-              where: {
-                userId: req.userId,
-                targetDate: {
-                  gte: startDate,
-                  lte: endDate,
-                },
-              },
-            },
-            children: {
-              where: { isActive: true },
-              orderBy: { displayOrder: 'asc' },
-              include: {
-                completions: {
-                  where: {
-                    userId: req.userId,
-                    targetDate: {
-                      gte: startDate,
-                      lte: endDate,
-                    },
-                  },
-                },
-              },
-            },
-          },
-        },
       },
     });
 
-    // タスクを再帰的に変換するヘルパー関数
-    const transformTask = (task: any): any => {
+    // タスクをマップに変換
+    const taskMap = new Map<string, any>();
+    tasks.forEach(task => {
       const completions: Record<string, boolean> = {};
-
       if (task.completions) {
         task.completions.forEach((completion: any) => {
           const dateStr = completion.targetDate.toISOString().split('T')[0];
@@ -90,7 +60,7 @@ export const getCompletions = async (
         });
       }
 
-      return {
+      taskMap.set(task.id, {
         id: task.id,
         name: task.name,
         year: task.year,
@@ -103,15 +73,33 @@ export const getCompletions = async (
         sourceType: task.sourceType,
         isCompleted: task.isCompleted,
         parentId: task.parentId,
-        children: task.children ? task.children.map(transformTask) : [],
+        children: [] as any[],
         completions,
-      };
-    };
+      });
+    });
 
-    // ルートレベルのタスクのみを返す（parentIdがnull）
-    const rootTasks = tasks
-      .filter(task => task.parentId === null)
-      .map(transformTask);
+    // 親子関係を構築
+    const rootTasks: any[] = [];
+    taskMap.forEach(task => {
+      if (task.parentId && taskMap.has(task.parentId)) {
+        const parent = taskMap.get(task.parentId);
+        parent.children.push(task);
+      } else if (!task.parentId) {
+        rootTasks.push(task);
+      } else {
+        // 親が見つからない場合はルートとして扱う
+        rootTasks.push(task);
+      }
+    });
+
+    // 子タスクをdisplayOrder順にソート
+    const sortChildren = (task: any) => {
+      if (task.children && task.children.length > 0) {
+        task.children.sort((a: any, b: any) => a.displayOrder - b.displayOrder);
+        task.children.forEach(sortChildren);
+      }
+    };
+    rootTasks.forEach(sortChildren);
 
     res.json({
       year: yearNum,
