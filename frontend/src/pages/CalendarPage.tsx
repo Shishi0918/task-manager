@@ -1407,20 +1407,13 @@ export const CalendarPage = ({ onNavigateToTemplateCreator, onNavigateToYearlyTa
     setCheckedTasks(new Set());
 
     try {
-      // 完了/未完了の切り替えとdisplayOrderの更新を並列で実行
-      const updatePromises: Promise<any>[] = [];
-
-      // 完了/未完了の切り替え
-      for (const taskId of checkedTasks) {
-        updatePromises.push(taskApi.updateTask(taskId, { isCompleted: newCompletedStatus }));
-      }
-
-      // displayOrderの更新
-      for (let i = 0; i < sortedTasks.length; i++) {
-        updatePromises.push(taskApi.updateTask(sortedTasks[i].id, { displayOrder: i + 1 }));
-      }
-
-      await Promise.all(updatePromises);
+      // 一括更新APIで完了状態とdisplayOrderを同時に更新（1リクエスト）
+      const updates = sortedTasks.map((task, i) => ({
+        id: task.id,
+        displayOrder: i + 1,
+        ...(checkedTasks.has(task.id) && { isCompleted: newCompletedStatus }),
+      }));
+      await taskApi.bulkUpdate(updates);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'タスクの完了/未完了の切り替えに失敗しました');
       // エラー時はデータを再取得
