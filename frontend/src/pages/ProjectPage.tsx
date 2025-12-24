@@ -512,15 +512,13 @@ export function ProjectPage({ projectId, onBack, onNavigateToSettings }: Project
     }
   };
 
-  // CSVダウンロード
+  // CSVダウンロード（階層情報なし）
   const handleCsvDownload = () => {
-    const headers = ['タスク名', '親タスク', '担当者', '開始日', '終了日', '完了'];
+    const headers = ['タスク名', '担当者', '開始日', '終了日', '完了'];
     const rows = tasks.map(task => {
       const member = members.find(m => m.id === task.memberId);
-      const parentTask = task.parentId ? tasks.find(t => t.id === task.parentId) : null;
       return [
         task.name,
-        parentTask?.name || '',
         member?.name || '',
         task.startDate || '',
         task.endDate || '',
@@ -540,6 +538,103 @@ export function ProjectPage({ projectId, onBack, onNavigateToSettings }: Project
     link.download = `${project?.name || 'project'}_tasks.csv`;
     link.click();
     URL.revokeObjectURL(url);
+  };
+
+  // CSVインポート（階層情報なし）
+  const handleCsvImport = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    if (!confirm('CSVからタスクをインポートします。続行しますか？')) {
+      e.target.value = '';
+      return;
+    }
+
+    try {
+      const text = await file.text();
+      const lines = text.split(/\r\n|\r|\n/).filter(l => l.trim());
+
+      if (lines.length < 2) {
+        setError('CSVファイルにデータがありません');
+        e.target.value = '';
+        return;
+      }
+
+      // CSVパース関数
+      const parseCsvLine = (line: string): string[] => {
+        const result: string[] = [];
+        let current = '';
+        let inQuotes = false;
+
+        for (let i = 0; i < line.length; i++) {
+          const char = line[i];
+          if (char === '"') {
+            if (inQuotes && line[i + 1] === '"') {
+              current += '"';
+              i++;
+            } else {
+              inQuotes = !inQuotes;
+            }
+          } else if (char === ',' && !inQuotes) {
+            result.push(current.trim());
+            current = '';
+          } else {
+            current += char;
+          }
+        }
+        result.push(current.trim());
+        return result;
+      };
+
+      // ヘッダーをスキップしてデータ行をパース
+      // フォーマット: タスク名, 担当者, 開始日, 終了日, 完了
+      const csvRows = lines.slice(1).map(line => parseCsvLine(line));
+
+      // 既存タスク名のセット
+      const existingNames = new Set(tasks.map(t => t.name));
+
+      // 新規タスクのみをフィルタ
+      const newRows = csvRows.filter(row => {
+        const name = row[0];
+        return name && !existingNames.has(name);
+      });
+
+      if (newRows.length === 0) {
+        setError('インポートする新規タスクがありません');
+        e.target.value = '';
+        return;
+      }
+
+      // メンバー名→IDマップ
+      const memberNameToId = new Map(members.map(m => [m.name, m.id]));
+
+      // タスクを作成
+      const maxOrder = tasks.length > 0 ? Math.max(...tasks.map(t => t.displayOrder)) : 0;
+
+      for (let i = 0; i < newRows.length; i++) {
+        const [name, memberName, startDate, endDate, completed] = newRows[i];
+        try {
+          const result = await projectApi.createTask(projectId, {
+            name,
+            memberId: memberName ? memberNameToId.get(memberName) || null : null,
+            startDate: startDate || null,
+            endDate: endDate || null,
+            displayOrder: maxOrder + i + 1,
+          });
+          if (completed === '完了') {
+            await projectApi.updateTask(projectId, result.task.id, { isCompleted: true });
+          }
+        } catch (err) {
+          console.error(`タスク "${name}" の作成に失敗:`, err);
+        }
+      }
+
+      await fetchData();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'CSVインポートに失敗しました');
+    }
+
+    e.target.value = '';
   };
 
   // 日付範囲内判定
@@ -900,6 +995,15 @@ export function ProjectPage({ projectId, onBack, onNavigateToSettings }: Project
           >
             CSVダウンロード
           </button>
+          <label className="px-4 py-2 bg-[#5B9BD5] text-white rounded-md hover:bg-[#4A8AC9] text-sm font-medium shadow-sm cursor-pointer">
+            CSVインポート
+            <input
+              type="file"
+              accept=".csv"
+              onChange={handleCsvImport}
+              className="hidden"
+            />
+          </label>
         </div>
 
         {/* テーブル */}
