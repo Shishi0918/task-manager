@@ -477,11 +477,13 @@ export function ProjectPage({ projectId, onBack, onNavigateToSettings }: Project
 
   // CSVダウンロード
   const handleCsvDownload = () => {
-    const headers = ['タスク名', '担当者', '開始日', '終了日', '完了'];
+    const headers = ['タスク名', '親タスク', '担当者', '開始日', '終了日', '完了'];
     const rows = tasks.map(task => {
       const member = members.find(m => m.id === task.memberId);
+      const parentTask = task.parentId ? tasks.find(t => t.id === task.parentId) : null;
       return [
         task.name,
+        parentTask?.name || '',
         member?.name || '',
         task.startDate || '',
         task.endDate || '',
@@ -519,12 +521,18 @@ export function ProjectPage({ projectId, onBack, onNavigateToSettings }: Project
     const dataLines = lines.slice(1);
     const maxOrder = tasks.length > 0 ? Math.max(...tasks.map(t => t.displayOrder)) : 0;
 
+    // タスク名 → ID のマッピング（既存タスク + 新規作成タスク）
+    const taskNameToId = new Map<string, string>();
+    tasks.forEach(t => taskNameToId.set(t.name, t.id));
+
     try {
+      // まず全タスクを作成
+      const createdTasks: Array<{ id: string; name: string; parentName: string; completed: boolean }> = [];
       for (let i = 0; i < dataLines.length; i++) {
         const cells = dataLines[i].split(',').map(cell =>
           cell.replace(/^"/, '').replace(/"$/, '').replace(/""/g, '"').trim()
         );
-        const [name, memberName, startDate, endDate, completed] = cells;
+        const [name, parentName, memberName, startDate, endDate, completed] = cells;
         if (!name) continue;
 
         const member = members.find(m => m.name === memberName);
@@ -535,11 +543,29 @@ export function ProjectPage({ projectId, onBack, onNavigateToSettings }: Project
           startDate: startDate || null,
           endDate: endDate || null,
         });
-        // 完了状態を更新
-        if (completed === '完了') {
-          await projectApi.updateTask(projectId, result.task.id, { isCompleted: true });
+        taskNameToId.set(name, result.task.id);
+        createdTasks.push({
+          id: result.task.id,
+          name,
+          parentName: parentName || '',
+          completed: completed === '完了'
+        });
+      }
+
+      // 親子関係と完了状態を設定
+      for (const task of createdTasks) {
+        const updates: { parentId?: string; isCompleted?: boolean } = {};
+        if (task.parentName && taskNameToId.has(task.parentName)) {
+          updates.parentId = taskNameToId.get(task.parentName);
+        }
+        if (task.completed) {
+          updates.isCompleted = true;
+        }
+        if (Object.keys(updates).length > 0) {
+          await projectApi.updateTask(projectId, task.id, updates);
         }
       }
+
       await fetchData();
     } catch (err) {
       setError(err instanceof Error ? err.message : 'CSVインポートに失敗しました');
