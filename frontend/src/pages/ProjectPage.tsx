@@ -511,7 +511,13 @@ export function ProjectPage({ projectId, onBack, onNavigateToSettings }: Project
     if (!file) return;
 
     const text = await file.text();
-    const lines = text.split('\n').filter(line => line.trim());
+    // 改行コードを統一し、空行を除去
+    const lines = text
+      .replace(/\r\n/g, '\n')
+      .replace(/\r/g, '\n')
+      .split('\n')
+      .map(line => line.trim())
+      .filter(line => line.length > 0);
     if (lines.length < 2) {
       setError('CSVファイルにデータがありません');
       return;
@@ -525,6 +531,9 @@ export function ProjectPage({ projectId, onBack, onNavigateToSettings }: Project
     const taskNameToId = new Map<string, string>();
     tasks.forEach(t => taskNameToId.set(t.name, t.id));
 
+    // 処理済みタスク名を追跡（重複防止）
+    const processedNames = new Set<string>();
+
     try {
       // まず全タスクを作成
       const createdTasks: Array<{ id: string; name: string; parentName: string; completed: boolean }> = [];
@@ -534,6 +543,10 @@ export function ProjectPage({ projectId, onBack, onNavigateToSettings }: Project
         );
         const [name, parentName, memberName, startDate, endDate, completed] = cells;
         if (!name) continue;
+
+        // 重複チェック
+        if (processedNames.has(name)) continue;
+        processedNames.add(name);
 
         const member = members.find(m => m.name === memberName);
         const result = await projectApi.createTask(projectId, {
