@@ -1655,8 +1655,9 @@ export const CalendarPage = ({ onNavigateToTemplateCreator, onNavigateToYearlyTa
           return { startDate: null, endDate: null };
         });
 
-        // Step 2: タスクをバッチで作成（10件ずつ）
-        const BATCH_SIZE = 10;
+        // Step 2: タスクをバッチで作成（3件ずつ、遅延付き）
+        const BATCH_SIZE = 3;
+        const delay = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
         const createResults: { task: { id: string; name: string; year: number; month: number; displayOrder: number; isCompleted?: boolean } }[] = [];
 
         for (let i = 0; i < sortedTasks.length; i += BATCH_SIZE) {
@@ -1678,6 +1679,10 @@ export const CalendarPage = ({ onNavigateToTemplateCreator, onNavigateToYearlyTa
           });
           const batchResults = await Promise.all(batchPromises);
           createResults.push(...batchResults);
+          // バッチ間に遅延を追加してDB接続プールを回復させる
+          if (i + BATCH_SIZE < sortedTasks.length) {
+            await delay(100);
+          }
         }
 
         // 旧IDと新IDのマッピングを作成
@@ -1699,10 +1704,13 @@ export const CalendarPage = ({ onNavigateToTemplateCreator, onNavigateToYearlyTa
           }
         });
 
-        // バッチで更新（10件ずつ）
+        // バッチで更新（3件ずつ、遅延付き）
         for (let i = 0; i < updateItems.length; i += BATCH_SIZE) {
           const batch = updateItems.slice(i, i + BATCH_SIZE);
           await Promise.all(batch.map(item => taskApi.updateTask(item.taskId, { parentId: item.parentId })));
+          if (i + BATCH_SIZE < updateItems.length) {
+            await delay(100);
+          }
         }
 
         // Step 4: レベルを計算してTaskWithCompletions形式に変換
@@ -1755,7 +1763,8 @@ export const CalendarPage = ({ onNavigateToTemplateCreator, onNavigateToYearlyTa
       ): Promise<TaskWithCompletions[]> => {
         if (tasks.length === 0) return [];
 
-        const BATCH_SIZE = 10;
+        const BATCH_SIZE = 3;
+        const delay = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
         const createResults: { task: { id: string; name: string; year: number; month: number; displayOrder: number; isCompleted?: boolean } }[] = [];
 
         for (let i = 0; i < tasks.length; i += BATCH_SIZE) {
@@ -1778,6 +1787,9 @@ export const CalendarPage = ({ onNavigateToTemplateCreator, onNavigateToYearlyTa
           });
           const batchResults = await Promise.all(batchPromises);
           createResults.push(...batchResults);
+          if (i + BATCH_SIZE < tasks.length) {
+            await delay(100);
+          }
         }
 
         return createResults.map((result, i) => ({
@@ -1805,7 +1817,8 @@ export const CalendarPage = ({ onNavigateToTemplateCreator, onNavigateToYearlyTa
       ): Promise<TaskWithCompletions[]> => {
         if (tasks.length === 0) return [];
 
-        const BATCH_SIZE = 10;
+        const BATCH_SIZE = 3;
+        const delay = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
         const createResults: { task: { id: string; name: string; year: number; month: number; displayOrder: number; isCompleted?: boolean } }[] = [];
 
         for (let i = 0; i < tasks.length; i += BATCH_SIZE) {
@@ -1828,6 +1841,9 @@ export const CalendarPage = ({ onNavigateToTemplateCreator, onNavigateToYearlyTa
           });
           const batchResults = await Promise.all(batchPromises);
           createResults.push(...batchResults);
+          if (i + BATCH_SIZE < tasks.length) {
+            await delay(100);
+          }
         }
 
         return createResults.map((result, i) => ({
