@@ -300,8 +300,13 @@ export function ProjectPage({ projectId, onBack, onNavigateToSettings }: Project
       });
       // 仮ID→実IDのマッピングを保存
       tempIdMapRef.current.set(tempId, result.task.id);
-      // 仮IDを実際のIDに置換（editingTaskIdは変更しない - 入力中のため）
-      setTasks(prev => prev.map(t => t.id === tempId ? { ...result.task, level: 0 } : t));
+      // 仮IDを実際のIDに置換（ローカルで変更された名前は保持する）
+      setTasks(prev => prev.map(t => {
+        if (t.id === tempId) {
+          return { ...result.task, level: 0, name: t.name || result.task.name };
+        }
+        return t;
+      }));
     } catch (err) {
       // 失敗時は仮タスクを削除
       setTasks(prev => prev.filter(t => t.id !== tempId));
