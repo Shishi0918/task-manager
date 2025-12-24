@@ -110,9 +110,6 @@ export const getProject = async (
           orderBy: { displayOrder: 'asc' },
           include: {
             member: true,
-            children: {
-              orderBy: { displayOrder: 'asc' },
-            },
           },
         },
       },
@@ -663,6 +660,115 @@ export const bulkUpdateTasks = async (
     res.json({ message: 'Tasks updated successfully', count: updates.length });
   } catch (error) {
     console.error('Bulk update tasks error:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+};
+
+// Bulk create tasks (for CSV import) - シンプル＆高速版
+export const bulkCreateTasks = async (
+  req: AuthRequest,
+  res: Response
+): Promise<void> => {
+  try {
+    const { id } = req.params;
+    const { tasks } = req.body as {
+      tasks: Array<{
+        name: string;
+        parentName?: string | null;
+        memberName?: string | null;
+        startDate?: string | null;
+        endDate?: string | null;
+        isCompleted?: boolean;
+        displayOrder: number;
+      }>;
+    };
+
+    // プロジェクトとメンバーを取得
+    const project = await prisma.project.findFirst({
+      where: { id, userId: req.userId! },
+      include: { members: true },
+    });
+
+    if (!project) {
+      res.status(404).json({ error: 'Project not found' });
+      return;
+    }
+
+    // 既存タスク名を取得
+    const existingTasks = await prisma.projectTask.findMany({
+      where: { projectId: id },
+      select: { name: true, id: true },
+    });
+    const existingTaskNames = new Map(existingTasks.map(t => [t.name, t.id]));
+
+    // メンバー名 → ID
+    const memberNameToId = new Map(project.members.map(m => [m.name, m.id]));
+
+    // 重複排除（既存タスク名とリクエスト内重複）
+    const seenNames = new Set<string>();
+    const uniqueTasks = tasks.filter(t => {
+      if (!t.name || seenNames.has(t.name) || existingTaskNames.has(t.name)) {
+        return false;
+      }
+      seenNames.add(t.name);
+      return true;
+    });
+
+    if (uniqueTasks.length === 0) {
+      res.status(200).json({ message: 'No new tasks', count: 0, tasks: [] });
+      return;
+    }
+
+    // 一括作成（createManyで高速化）
+    await prisma.projectTask.createMany({
+      data: uniqueTasks.map(t => ({
+        projectId: id,
+        name: t.name,
+        memberId: t.memberName ? memberNameToId.get(t.memberName) || null : null,
+        parentId: null,
+        startDate: t.startDate ? new Date(t.startDate) : null,
+        endDate: t.endDate ? new Date(t.endDate) : null,
+        displayOrder: t.displayOrder,
+        isCompleted: t.isCompleted ?? false,
+      })),
+    });
+
+    // 作成したタスクを取得してparentIdを設定
+    const createdTasks = await prisma.projectTask.findMany({
+      where: { projectId: id, name: { in: uniqueTasks.map(t => t.name) } },
+      select: { id: true, name: true },
+    });
+    const taskNameToId = new Map([
+      ...existingTaskNames,
+      ...createdTasks.map(t => [t.name, t.id] as [string, string]),
+    ]);
+
+    // 親子関係を一括更新
+    const parentUpdates = uniqueTasks
+      .filter(t => t.parentName && taskNameToId.has(t.parentName))
+      .map(t => ({
+        name: t.name,
+        parentId: taskNameToId.get(t.parentName!)!,
+      }));
+
+    if (parentUpdates.length > 0) {
+      await prisma.$transaction(
+        parentUpdates.map(u =>
+          prisma.projectTask.updateMany({
+            where: { projectId: id, name: u.name },
+            data: { parentId: u.parentId },
+          })
+        )
+      );
+    }
+
+    res.status(201).json({
+      message: 'Tasks created',
+      count: createdTasks.length,
+      tasks: createdTasks,
+    });
+  } catch (error) {
+    console.error('Bulk create tasks error:', error);
     res.status(500).json({ error: 'Internal server error' });
   }
 };

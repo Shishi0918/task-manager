@@ -191,7 +191,44 @@ export function ProjectPage({ projectId, onBack, onNavigateToSettings }: Project
       const projectData = await projectApi.get(projectId);
       setProject(projectData.project);
       setMembers(projectData.project.members || []);
-      const flattenedTasks = flattenTasks(projectData.project.tasks || []);
+
+      const allTasks = projectData.project.tasks || [];
+
+      // IDで重複排除（APIが重複を返す場合の対策）
+      const taskMap = new Map<string, ProjectTask>();
+      allTasks.forEach(t => taskMap.set(t.id, t));
+      const uniqueTasks = Array.from(taskMap.values());
+
+      // parentIdを使って子タスクをグループ化
+      const childrenByParent = new Map<string, ProjectTask[]>();
+      uniqueTasks.forEach(t => {
+        if (t.parentId) {
+          const siblings = childrenByParent.get(t.parentId) || [];
+          siblings.push(t);
+          childrenByParent.set(t.parentId, siblings);
+        }
+      });
+
+      // 各グループをdisplayOrderでソート
+      childrenByParent.forEach(children => {
+        children.sort((a, b) => a.displayOrder - b.displayOrder);
+      });
+
+      // ルートタスクから再帰的にフラット化
+      const buildFlatList = (parentId: string | null, level: number): ProjectTask[] => {
+        const tasksAtLevel = parentId === null
+          ? uniqueTasks.filter(t => !t.parentId).sort((a, b) => a.displayOrder - b.displayOrder)
+          : childrenByParent.get(parentId) || [];
+
+        const result: ProjectTask[] = [];
+        for (const task of tasksAtLevel) {
+          result.push({ ...task, level });
+          result.push(...buildFlatList(task.id, level + 1));
+        }
+        return result;
+      };
+
+      const flattenedTasks = buildFlatList(null, 0);
       setTasks(flattenedTasks);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'データの取得に失敗しました');
@@ -505,89 +542,6 @@ export function ProjectPage({ projectId, onBack, onNavigateToSettings }: Project
     URL.revokeObjectURL(url);
   };
 
-  // CSVインポート
-  const handleCsvImport = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-
-    const text = await file.text();
-    // 改行コードを統一し、空行を除去
-    const lines = text
-      .replace(/\r\n/g, '\n')
-      .replace(/\r/g, '\n')
-      .split('\n')
-      .map(line => line.trim())
-      .filter(line => line.length > 0);
-    if (lines.length < 2) {
-      setError('CSVファイルにデータがありません');
-      return;
-    }
-
-    // ヘッダー行をスキップ
-    const dataLines = lines.slice(1);
-    const maxOrder = tasks.length > 0 ? Math.max(...tasks.map(t => t.displayOrder)) : 0;
-
-    // タスク名 → ID のマッピング（既存タスク + 新規作成タスク）
-    const taskNameToId = new Map<string, string>();
-    tasks.forEach(t => taskNameToId.set(t.name, t.id));
-
-    // 処理済みタスク名を追跡（重複防止）
-    const processedNames = new Set<string>();
-
-    try {
-      // まず全タスクを作成
-      const createdTasks: Array<{ id: string; name: string; parentName: string; completed: boolean }> = [];
-      for (let i = 0; i < dataLines.length; i++) {
-        const cells = dataLines[i].split(',').map(cell =>
-          cell.replace(/^"/, '').replace(/"$/, '').replace(/""/g, '"').trim()
-        );
-        const [name, parentName, memberName, startDate, endDate, completed] = cells;
-        if (!name) continue;
-
-        // 重複チェック
-        if (processedNames.has(name)) continue;
-        processedNames.add(name);
-
-        const member = members.find(m => m.name === memberName);
-        const result = await projectApi.createTask(projectId, {
-          name,
-          displayOrder: maxOrder + i + 1,
-          memberId: member?.id || null,
-          startDate: startDate || null,
-          endDate: endDate || null,
-        });
-        taskNameToId.set(name, result.task.id);
-        createdTasks.push({
-          id: result.task.id,
-          name,
-          parentName: parentName || '',
-          completed: completed === '完了'
-        });
-      }
-
-      // 親子関係と完了状態を設定
-      for (const task of createdTasks) {
-        const updates: { parentId?: string; isCompleted?: boolean } = {};
-        if (task.parentName && taskNameToId.has(task.parentName)) {
-          updates.parentId = taskNameToId.get(task.parentName);
-        }
-        if (task.completed) {
-          updates.isCompleted = true;
-        }
-        if (Object.keys(updates).length > 0) {
-          await projectApi.updateTask(projectId, task.id, updates);
-        }
-      }
-
-      await fetchData();
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'CSVインポートに失敗しました');
-    }
-
-    // ファイル入力をリセット
-    e.target.value = '';
-  };
-
   // 日付範囲内判定
   const isDateInRange = (task: ProjectTask, dateStr: string): boolean => {
     if (!task.startDate || !task.endDate) return false;
@@ -747,6 +701,12 @@ export function ProjectPage({ projectId, onBack, onNavigateToSettings }: Project
 
     // 階層化モード
     if (currentDragMode === 'nest' && currentNestTarget) {
+      // 仮IDの場合はスキップ（まだ作成中のタスク）
+      if (draggedTaskId.startsWith('temp-') || currentNestTarget.startsWith('temp-')) {
+        setDraggedTaskId(null);
+        return;
+      }
+
       setTasks(prevTasks => {
         const newTasks = [...prevTasks];
         const draggedIndex = newTasks.findIndex(t => t.id === draggedTaskId);
@@ -772,6 +732,12 @@ export function ProjectPage({ projectId, onBack, onNavigateToSettings }: Project
       return;
     }
 
+    // 仮IDの場合はドラッグ操作をスキップ
+    if (draggedTaskId.startsWith('temp-')) {
+      setDraggedTaskId(null);
+      return;
+    }
+
     // 最後に移動
     if (isDropToBottom) {
       const draggedIndex = tasks.findIndex(t => t.id === draggedTaskId);
@@ -786,7 +752,7 @@ export function ProjectPage({ projectId, onBack, onNavigateToSettings }: Project
 
       const updatePromises: Promise<any>[] = [];
       for (let i = 0; i < newTasks.length; i++) {
-        if (newTasks[i].displayOrder !== i + 1) {
+        if (newTasks[i].displayOrder !== i + 1 && !newTasks[i].id.startsWith('temp-')) {
           newTasks[i] = { ...newTasks[i], displayOrder: i + 1 };
           updatePromises.push(projectApi.updateTask(projectId, newTasks[i].id, { displayOrder: i + 1 }));
         }
@@ -818,7 +784,7 @@ export function ProjectPage({ projectId, onBack, onNavigateToSettings }: Project
 
     const updatePromises: Promise<any>[] = [];
     for (let i = 0; i < newTasks.length; i++) {
-      if (newTasks[i].displayOrder !== i + 1) {
+      if (newTasks[i].displayOrder !== i + 1 && !newTasks[i].id.startsWith('temp-')) {
         newTasks[i] = { ...newTasks[i], displayOrder: i + 1 };
         updatePromises.push(projectApi.updateTask(projectId, newTasks[i].id, { displayOrder: i + 1 }));
       }
@@ -934,15 +900,6 @@ export function ProjectPage({ projectId, onBack, onNavigateToSettings }: Project
           >
             CSVダウンロード
           </button>
-          <label className="px-4 py-2 bg-[#5B9BD5] text-white rounded-md hover:bg-[#4A8AC9] text-sm font-medium shadow-sm cursor-pointer">
-            CSVインポート
-            <input
-              type="file"
-              accept=".csv"
-              onChange={handleCsvImport}
-              className="hidden"
-            />
-          </label>
         </div>
 
         {/* テーブル */}

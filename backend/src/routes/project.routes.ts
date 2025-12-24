@@ -18,6 +18,7 @@ import {
   deleteTask,
   bulkDeleteTasks,
   bulkUpdateTasks,
+  bulkCreateTasks,
 } from '../controllers/project.controller.js';
 
 const router = Router();
@@ -47,5 +48,6 @@ router.put('/:id/tasks/:taskId', updateTask);
 router.delete('/:id/tasks/:taskId', deleteTask);
 router.post('/:id/tasks/bulk-delete', bulkDeleteTasks);
 router.post('/:id/tasks/bulk-update', bulkUpdateTasks);
+router.post('/:id/tasks/bulk-create', bulkCreateTasks);
 
 export default router;
