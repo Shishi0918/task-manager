@@ -1655,23 +1655,30 @@ export const CalendarPage = ({ onNavigateToTemplateCreator, onNavigateToYearlyTa
           return { startDate: null, endDate: null };
         });
 
-        // Step 2: 全タスクを並列で作成（parentIdなし）
-        const createPromises = sortedTasks.map((sourceTask, i) => {
-          const { startDate, endDate } = computedDates[i];
-          return taskApi.createTask(
-            sourceTask.name,
-            year,
-            month,
-            startingOrder + i,
-            startDate ?? undefined,
-            endDate ?? undefined,
-            sourceTask.startTime ?? null,
-            sourceTask.endTime ?? null,
-            sourceType
-          );
-        });
+        // Step 2: タスクをバッチで作成（10件ずつ）
+        const BATCH_SIZE = 10;
+        const createResults: { task: { id: string; name: string; year: number; month: number; displayOrder: number; isCompleted?: boolean } }[] = [];
 
-        const createResults = await Promise.all(createPromises);
+        for (let i = 0; i < sortedTasks.length; i += BATCH_SIZE) {
+          const batch = sortedTasks.slice(i, i + BATCH_SIZE);
+          const batchPromises = batch.map((sourceTask, j) => {
+            const idx = i + j;
+            const { startDate, endDate } = computedDates[idx];
+            return taskApi.createTask(
+              sourceTask.name,
+              year,
+              month,
+              startingOrder + idx,
+              startDate ?? undefined,
+              endDate ?? undefined,
+              sourceTask.startTime ?? null,
+              sourceTask.endTime ?? null,
+              sourceType
+            );
+          });
+          const batchResults = await Promise.all(batchPromises);
+          createResults.push(...batchResults);
+        }
 
         // 旧IDと新IDのマッピングを作成
         const oldIdToNewId = new Map<string, string>();
@@ -1679,21 +1686,23 @@ export const CalendarPage = ({ onNavigateToTemplateCreator, onNavigateToYearlyTa
           oldIdToNewId.set(sourceTask.id, createResults[i].task.id);
         });
 
-        // Step 3: 親タスクがあるものだけ並列でparentIdを更新
-        const updatePromises: Promise<any>[] = [];
+        // Step 3: 親タスクがあるものだけバッチでparentIdを更新
         const parentIdMap = new Map<string, string>(); // newTaskId -> newParentId
+        const updateItems: { taskId: string; parentId: string }[] = [];
 
         sortedTasks.forEach((sourceTask, i) => {
           if (sourceTask.parentId && oldIdToNewId.has(sourceTask.parentId)) {
             const newTaskId = createResults[i].task.id;
             const newParentId = oldIdToNewId.get(sourceTask.parentId)!;
             parentIdMap.set(newTaskId, newParentId);
-            updatePromises.push(taskApi.updateTask(newTaskId, { parentId: newParentId }));
+            updateItems.push({ taskId: newTaskId, parentId: newParentId });
           }
         });
 
-        if (updatePromises.length > 0) {
-          await Promise.all(updatePromises);
+        // バッチで更新（10件ずつ）
+        for (let i = 0; i < updateItems.length; i += BATCH_SIZE) {
+          const batch = updateItems.slice(i, i + BATCH_SIZE);
+          await Promise.all(batch.map(item => taskApi.updateTask(item.taskId, { parentId: item.parentId })));
         }
 
         // Step 4: レベルを計算してTaskWithCompletions形式に変換
@@ -1746,23 +1755,30 @@ export const CalendarPage = ({ onNavigateToTemplateCreator, onNavigateToYearlyTa
       ): Promise<TaskWithCompletions[]> => {
         if (tasks.length === 0) return [];
 
-        const createPromises = tasks.map((task, i) => {
-          const startDate = `${year}-${String(month).padStart(2, '0')}-${String(task.startDay).padStart(2, '0')}`;
-          const endDate = `${year}-${String(month).padStart(2, '0')}-${String(task.endDay).padStart(2, '0')}`;
-          return taskApi.createTask(
-            task.name,
-            year,
-            month,
-            startingOrder + i,
-            startDate,
-            endDate,
-            task.startTime,
-            task.endTime,
-            'weekly'
-          );
-        });
+        const BATCH_SIZE = 10;
+        const createResults: { task: { id: string; name: string; year: number; month: number; displayOrder: number; isCompleted?: boolean } }[] = [];
 
-        const createResults = await Promise.all(createPromises);
+        for (let i = 0; i < tasks.length; i += BATCH_SIZE) {
+          const batch = tasks.slice(i, i + BATCH_SIZE);
+          const batchPromises = batch.map((task, j) => {
+            const idx = i + j;
+            const startDate = `${year}-${String(month).padStart(2, '0')}-${String(task.startDay).padStart(2, '0')}`;
+            const endDate = `${year}-${String(month).padStart(2, '0')}-${String(task.endDay).padStart(2, '0')}`;
+            return taskApi.createTask(
+              task.name,
+              year,
+              month,
+              startingOrder + idx,
+              startDate,
+              endDate,
+              task.startTime,
+              task.endTime,
+              'weekly'
+            );
+          });
+          const batchResults = await Promise.all(batchPromises);
+          createResults.push(...batchResults);
+        }
 
         return createResults.map((result, i) => ({
           id: result.task.id,
@@ -1789,23 +1805,30 @@ export const CalendarPage = ({ onNavigateToTemplateCreator, onNavigateToYearlyTa
       ): Promise<TaskWithCompletions[]> => {
         if (tasks.length === 0) return [];
 
-        const createPromises = tasks.map((task, i) => {
-          const startDate = `${year}-${String(month).padStart(2, '0')}-${String(task.startDay).padStart(2, '0')}`;
-          const endDate = `${year}-${String(month).padStart(2, '0')}-${String(task.endDay).padStart(2, '0')}`;
-          return taskApi.createTask(
-            task.name,
-            year,
-            month,
-            startingOrder + i,
-            startDate,
-            endDate,
-            task.startTime,
-            task.endTime,
-            'daily'
-          );
-        });
+        const BATCH_SIZE = 10;
+        const createResults: { task: { id: string; name: string; year: number; month: number; displayOrder: number; isCompleted?: boolean } }[] = [];
 
-        const createResults = await Promise.all(createPromises);
+        for (let i = 0; i < tasks.length; i += BATCH_SIZE) {
+          const batch = tasks.slice(i, i + BATCH_SIZE);
+          const batchPromises = batch.map((task, j) => {
+            const idx = i + j;
+            const startDate = `${year}-${String(month).padStart(2, '0')}-${String(task.startDay).padStart(2, '0')}`;
+            const endDate = `${year}-${String(month).padStart(2, '0')}-${String(task.endDay).padStart(2, '0')}`;
+            return taskApi.createTask(
+              task.name,
+              year,
+              month,
+              startingOrder + idx,
+              startDate,
+              endDate,
+              task.startTime,
+              task.endTime,
+              'daily'
+            );
+          });
+          const batchResults = await Promise.all(batchPromises);
+          createResults.push(...batchResults);
+        }
 
         return createResults.map((result, i) => ({
           id: result.task.id,
@@ -1825,24 +1848,22 @@ export const CalendarPage = ({ onNavigateToTemplateCreator, onNavigateToYearlyTa
         }));
       };
 
-      // 5種類のタスクを並列で作成
-      const [monthlyResults, yearlyResults, spotResults, weeklyResults, dailyResults] = await Promise.all([
-        monthlyTemplateTasks.length > 0
-          ? createTasksWithHierarchy(monthlyTemplateTasks, monthlyOrder, 'monthly')
-          : Promise.resolve([]),
-        matchingYearlyTasks.length > 0
-          ? createTasksWithHierarchy(matchingYearlyTasks, yearlyOrder, 'yearly')
-          : Promise.resolve([]),
-        spotTasks.length > 0
-          ? createTasksWithHierarchy(spotTasks, spotOrder, 'spot')
-          : Promise.resolve([]),
-        expandedWeeklyTasks.length > 0
-          ? createWeeklyTasks(expandedWeeklyTasks, weeklyOrder)
-          : Promise.resolve([]),
-        expandedDailyTasks.length > 0
-          ? createDailyTasks(expandedDailyTasks, dailyOrder)
-          : Promise.resolve([]),
-      ]);
+      // 5種類のタスクを順次作成（DB接続プール制限対策）
+      const monthlyResults = monthlyTemplateTasks.length > 0
+        ? await createTasksWithHierarchy(monthlyTemplateTasks, monthlyOrder, 'monthly')
+        : [];
+      const yearlyResults = matchingYearlyTasks.length > 0
+        ? await createTasksWithHierarchy(matchingYearlyTasks, yearlyOrder, 'yearly')
+        : [];
+      const spotResults = spotTasks.length > 0
+        ? await createTasksWithHierarchy(spotTasks, spotOrder, 'spot')
+        : [];
+      const weeklyResults = expandedWeeklyTasks.length > 0
+        ? await createWeeklyTasks(expandedWeeklyTasks, weeklyOrder)
+        : [];
+      const dailyResults = expandedDailyTasks.length > 0
+        ? await createDailyTasks(expandedDailyTasks, dailyOrder)
+        : [];
 
       const newTasks = [...monthlyResults, ...yearlyResults, ...spotResults, ...weeklyResults, ...dailyResults];
 
