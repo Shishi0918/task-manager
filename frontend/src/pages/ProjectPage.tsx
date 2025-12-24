@@ -1,7 +1,44 @@
-import { useState, useEffect, useMemo, useCallback, useRef } from 'react';
+import { useState, useEffect, useMemo, useCallback, useRef, memo } from 'react';
 import { projectApi } from '../services/api';
 import type { ProjectTask, ProjectDetail, ProjectMember } from '../types';
 import { getHolidaysForMonth } from '../utils/holidays';
+
+// タスク名入力コンポーネント（独立させて再レンダリングを防ぐ）
+const TaskNameInput = memo(function TaskNameInput({
+  taskId,
+  initialName,
+  onSave,
+  onCancel,
+}: {
+  taskId: string;
+  initialName: string;
+  onSave: (taskId: string, name: string) => void;
+  onCancel: () => void;
+}) {
+  const [name, setName] = useState(initialName);
+  const [isComposing, setIsComposing] = useState(false);
+
+  return (
+    <input
+      type="text"
+      value={name}
+      onChange={(e) => setName(e.target.value)}
+      onCompositionStart={() => setIsComposing(true)}
+      onCompositionEnd={() => setIsComposing(false)}
+      onBlur={() => onSave(taskId, name)}
+      onKeyDown={(e) => {
+        if (e.key === 'Enter' && !isComposing) {
+          e.preventDefault();
+          onSave(taskId, name);
+        } else if (e.key === 'Escape') {
+          onCancel();
+        }
+      }}
+      autoFocus
+      className="flex-1 min-w-0 px-1 py-0 border border-blue-500 rounded focus:outline-none focus:ring-1 focus:ring-blue-500"
+    />
+  );
+});
 
 // 階層タスクをフラット化する関数
 const flattenTasks = (
@@ -76,8 +113,6 @@ export function ProjectPage({ projectId, onBack, onNavigateToSettings }: Project
 
   // 編集状態
   const [editingTaskId, setEditingTaskId] = useState<string | null>(null);
-  const [editingTaskName, setEditingTaskName] = useState('');
-  const [isComposing, setIsComposing] = useState(false);
   const [lastSavedTaskId, setLastSavedTaskId] = useState<string | null>(null);
   const [shouldAddNewTask, setShouldAddNewTask] = useState(false);
 
@@ -209,7 +244,6 @@ export function ProjectPage({ projectId, onBack, onNavigateToSettings }: Project
           if (nextIndex < tasks.length) {
             const targetTask = tasks[nextIndex];
             setEditingTaskId(targetTask.id);
-            setEditingTaskName(targetTask.name);
             setLastSavedTaskId(null);
           } else {
             setLastSavedTaskId(null);
@@ -241,24 +275,27 @@ export function ProjectPage({ projectId, onBack, onNavigateToSettings }: Project
       });
       setTasks(prev => [...prev, { ...result.task, level: 0 }]);
       setEditingTaskId(result.task.id);
-      setEditingTaskName('');
     } catch (err) {
       setError(err instanceof Error ? err.message : 'タスクの追加に失敗しました');
     }
   };
 
   // タスク名保存
-  const handleSaveTaskName = async (taskId: string) => {
+  const handleSaveTaskName = useCallback(async (taskId: string, name: string) => {
     try {
-      await projectApi.updateTask(projectId, taskId, { name: editingTaskName });
-      setTasks(prev => prev.map(t => t.id === taskId ? { ...t, name: editingTaskName } : t));
+      await projectApi.updateTask(projectId, taskId, { name });
+      setTasks(prev => prev.map(t => t.id === taskId ? { ...t, name } : t));
       setLastSavedTaskId(taskId);
       setEditingTaskId(null);
-      setEditingTaskName('');
     } catch (err) {
       setError(err instanceof Error ? err.message : 'タスク名の保存に失敗しました');
     }
-  };
+  }, [projectId]);
+
+  // 編集キャンセル
+  const handleCancelEdit = useCallback(() => {
+    setEditingTaskId(null);
+  }, []);
 
   // チェックボックス
   const handleToggleAllTasks = () => {
@@ -772,28 +809,15 @@ export function ProjectPage({ projectId, onBack, onNavigateToSettings }: Project
                           className="w-4 h-4 cursor-pointer flex-shrink-0"
                         />
                         {editingTaskId === task.id ? (
-                          <input
-                            type="text"
-                            value={editingTaskName}
-                            onChange={(e) => setEditingTaskName(e.target.value)}
-                            onCompositionStart={() => setIsComposing(true)}
-                            onCompositionEnd={() => setIsComposing(false)}
-                            onBlur={() => handleSaveTaskName(task.id)}
-                            onKeyDown={(e) => {
-                              if (e.key === 'Enter' && !isComposing) {
-                                e.preventDefault();
-                                handleSaveTaskName(task.id);
-                              } else if (e.key === 'Escape') {
-                                setEditingTaskId(null);
-                                setEditingTaskName('');
-                              }
-                            }}
-                            autoFocus
-                            className="flex-1 min-w-0 px-1 py-0 border border-blue-500 rounded focus:outline-none focus:ring-1 focus:ring-blue-500"
+                          <TaskNameInput
+                            taskId={task.id}
+                            initialName={task.name}
+                            onSave={handleSaveTaskName}
+                            onCancel={handleCancelEdit}
                           />
                         ) : (
                           <div
-                            onClick={() => { setEditingTaskId(task.id); setEditingTaskName(task.name); }}
+                            onClick={() => setEditingTaskId(task.id)}
                             className="cursor-text min-h-[20px] flex items-center flex-1 min-w-0 overflow-hidden"
                           >
                             <span className="truncate">
