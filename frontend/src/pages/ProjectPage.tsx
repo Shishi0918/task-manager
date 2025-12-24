@@ -310,35 +310,39 @@ export function ProjectPage({ projectId, onBack, onNavigateToSettings }: Project
     }
   };
 
-  // タスク名保存
+  // タスク名保存（楽観的UI: 即座に画面更新、APIはバックグラウンド）
   const handleSaveTaskName = useCallback(async (taskId: string, name: string) => {
-    // まだAPIが完了していない場合（仮ID→実IDのマッピングがない）は少し待つ
-    if (taskId.startsWith('temp-') && !tempIdMapRef.current.has(taskId)) {
-      // 最大2秒待機
-      for (let i = 0; i < 20; i++) {
-        await new Promise(resolve => setTimeout(resolve, 100));
-        if (tempIdMapRef.current.has(taskId)) break;
+    // 即座に画面を更新
+    setTasks(prev => prev.map(t => t.id === taskId ? { ...t, name } : t));
+    setEditingTaskId(null);
+    setLastSavedTaskId(taskId);
+
+    // バックグラウンドでAPI呼び出し
+    const saveToServer = async () => {
+      // 仮IDの場合は実IDを待つ
+      if (taskId.startsWith('temp-') && !tempIdMapRef.current.has(taskId)) {
+        for (let i = 0; i < 20; i++) {
+          await new Promise(resolve => setTimeout(resolve, 100));
+          if (tempIdMapRef.current.has(taskId)) break;
+        }
       }
-    }
 
-    const finalId = tempIdMapRef.current.get(taskId) || taskId;
+      const finalId = tempIdMapRef.current.get(taskId) || taskId;
+      if (finalId.startsWith('temp-')) return; // まだ解決されていない
 
-    // 仮IDが解決されなかった場合（エラーで消えた等）
-    if (finalId.startsWith('temp-')) {
-      setEditingTaskId(null);
-      return;
-    }
+      try {
+        await projectApi.updateTask(projectId, finalId, { name });
+        // IDが変わった場合はタスクリストを更新
+        if (finalId !== taskId) {
+          setTasks(prev => prev.map(t => t.id === taskId ? { ...t, id: finalId, name } : t));
+        }
+        tempIdMapRef.current.delete(taskId);
+      } catch (err) {
+        setError(err instanceof Error ? err.message : 'タスク名の保存に失敗しました');
+      }
+    };
 
-    try {
-      await projectApi.updateTask(projectId, finalId, { name });
-      setTasks(prev => prev.map(t => (t.id === taskId || t.id === finalId) ? { ...t, name } : t));
-      setLastSavedTaskId(finalId);
-      setEditingTaskId(null);
-      // マッピングをクリーンアップ
-      tempIdMapRef.current.delete(taskId);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'タスク名の保存に失敗しました');
-    }
+    saveToServer();
   }, [projectId]);
 
   // 編集キャンセル
