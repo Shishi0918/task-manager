@@ -1634,107 +1634,65 @@ export const CalendarPage = ({ onNavigateToTemplateCreator, onNavigateToYearlyTa
       // その月の日数を取得
       const daysInCurrentMonth = new Date(year, month, 0).getDate();
 
-      // 階層を保持してタスクを作成するヘルパー関数（並列化版）
+      // 階層を保持してタスクを作成するヘルパー関数（順次処理版）
       const createTasksWithHierarchy = async (
         sourceTasks: Array<{ id: string; name: string; startDay: number | null; endDay: number | null; startTime?: string | null; endTime?: string | null; parentId?: string | null }>,
         startingOrder: number,
         sourceType: 'monthly' | 'yearly' | 'spot'
       ): Promise<TaskWithCompletions[]> => {
+        const results: TaskWithCompletions[] = [];
+        const oldIdToNewId = new Map<string, string>();
+        const newIdToLevel = new Map<string, number>();
+
         const sortedTasks = [...sourceTasks];
 
-        // Step 1: 日付を事前計算して保持
-        const computedDates: Array<{ startDate: string | null; endDate: string | null }> = sortedTasks.map((sourceTask) => {
+        for (let i = 0; i < sortedTasks.length; i++) {
+          const sourceTask = sortedTasks[i];
+          let startDateStr: string | undefined = undefined;
+          let endDateStr: string | undefined = undefined;
+
           if (sourceTask.startDay !== null && sourceTask.endDay !== null) {
             const adjustedStartDay = Math.min(sourceTask.startDay, daysInCurrentMonth);
             const adjustedEndDay = Math.min(sourceTask.endDay, daysInCurrentMonth);
-            return {
-              startDate: `${year}-${String(month).padStart(2, '0')}-${String(adjustedStartDay).padStart(2, '0')}`,
-              endDate: `${year}-${String(month).padStart(2, '0')}-${String(adjustedEndDay).padStart(2, '0')}`,
-            };
+            startDateStr = `${year}-${String(month).padStart(2, '0')}-${String(adjustedStartDay).padStart(2, '0')}`;
+            endDateStr = `${year}-${String(month).padStart(2, '0')}-${String(adjustedEndDay).padStart(2, '0')}`;
           }
-          return { startDate: null, endDate: null };
-        });
 
-        // Step 2: タスクをバッチで作成（3件ずつ、遅延付き）
-        const BATCH_SIZE = 3;
-        const delay = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
-        const createResults: { task: { id: string; name: string; year: number; month: number; displayOrder: number; isCompleted?: boolean } }[] = [];
+          // タスクを作成（1件ずつ順次）
+          const result = await taskApi.createTask(
+            sourceTask.name,
+            year,
+            month,
+            startingOrder + i,
+            startDateStr,
+            endDateStr,
+            sourceTask.startTime ?? null,
+            sourceTask.endTime ?? null,
+            sourceType
+          );
 
-        for (let i = 0; i < sortedTasks.length; i += BATCH_SIZE) {
-          const batch = sortedTasks.slice(i, i + BATCH_SIZE);
-          const batchPromises = batch.map((sourceTask, j) => {
-            const idx = i + j;
-            const { startDate, endDate } = computedDates[idx];
-            return taskApi.createTask(
-              sourceTask.name,
-              year,
-              month,
-              startingOrder + idx,
-              startDate ?? undefined,
-              endDate ?? undefined,
-              sourceTask.startTime ?? null,
-              sourceTask.endTime ?? null,
-              sourceType
-            );
-          });
-          const batchResults = await Promise.all(batchPromises);
-          createResults.push(...batchResults);
-          // バッチ間に遅延を追加してDB接続プールを回復させる
-          if (i + BATCH_SIZE < sortedTasks.length) {
-            await delay(100);
-          }
-        }
+          // 旧IDと新IDのマッピングを保存
+          oldIdToNewId.set(sourceTask.id, result.task.id);
 
-        // 旧IDと新IDのマッピングを作成
-        const oldIdToNewId = new Map<string, string>();
-        sortedTasks.forEach((sourceTask, i) => {
-          oldIdToNewId.set(sourceTask.id, createResults[i].task.id);
-        });
-
-        // Step 3: 親タスクがあるものだけバッチでparentIdを更新
-        const parentIdMap = new Map<string, string>(); // newTaskId -> newParentId
-        const updateItems: { taskId: string; parentId: string }[] = [];
-
-        sortedTasks.forEach((sourceTask, i) => {
+          // 親タスクがある場合、親IDを更新（1件ずつ順次）
+          let newParentId: string | null = null;
+          let level = 0;
           if (sourceTask.parentId && oldIdToNewId.has(sourceTask.parentId)) {
-            const newTaskId = createResults[i].task.id;
-            const newParentId = oldIdToNewId.get(sourceTask.parentId)!;
-            parentIdMap.set(newTaskId, newParentId);
-            updateItems.push({ taskId: newTaskId, parentId: newParentId });
+            newParentId = oldIdToNewId.get(sourceTask.parentId)!;
+            await taskApi.updateTask(result.task.id, { parentId: newParentId });
+            level = (newIdToLevel.get(newParentId) ?? 0) + 1;
           }
-        });
+          newIdToLevel.set(result.task.id, level);
 
-        // バッチで更新（3件ずつ、遅延付き）
-        for (let i = 0; i < updateItems.length; i += BATCH_SIZE) {
-          const batch = updateItems.slice(i, i + BATCH_SIZE);
-          await Promise.all(batch.map(item => taskApi.updateTask(item.taskId, { parentId: item.parentId })));
-          if (i + BATCH_SIZE < updateItems.length) {
-            await delay(100);
-          }
-        }
-
-        // Step 4: レベルを計算してTaskWithCompletions形式に変換
-        const calculateLevel = (taskId: string): number => {
-          const parentId = parentIdMap.get(taskId);
-          if (!parentId) return 0;
-          return calculateLevel(parentId) + 1;
-        };
-
-        const results: TaskWithCompletions[] = createResults.map((result, i) => {
-          const newTaskId = result.task.id;
-          const newParentId = parentIdMap.get(newTaskId) ?? null;
-          const level = calculateLevel(newTaskId);
-          const { startDate, endDate } = computedDates[i];
-          const sourceTask = sortedTasks[i];
-
-          return {
-            id: newTaskId,
+          // TaskWithCompletions形式に変換
+          const taskWithCompletions: TaskWithCompletions = {
+            id: result.task.id,
             name: result.task.name,
             year: result.task.year,
             month: result.task.month,
             displayOrder: result.task.displayOrder,
-            startDate,
-            endDate,
+            startDate: startDateStr ?? null,
+            endDate: endDateStr ?? null,
             startTime: sourceTask.startTime ?? null,
             endTime: sourceTask.endTime ?? null,
             sourceType: sourceType,
@@ -1743,7 +1701,9 @@ export const CalendarPage = ({ onNavigateToTemplateCreator, onNavigateToYearlyTa
             completions: {},
             level,
           };
-        });
+
+          results.push(taskWithCompletions);
+        }
 
         return results;
       };
@@ -1756,112 +1716,100 @@ export const CalendarPage = ({ onNavigateToTemplateCreator, onNavigateToYearlyTa
       const weeklyOrder = spotOrder + spotTasks.length;
       const dailyOrder = weeklyOrder + expandedWeeklyTasks.length;
 
-      // 週次タスクを作成するヘルパー関数（階層なし、日付ごとに独立）
+      // 週次タスクを作成するヘルパー関数（順次処理版）
       const createWeeklyTasks = async (
         tasks: ExpandedWeeklyTask[],
         startingOrder: number
       ): Promise<TaskWithCompletions[]> => {
         if (tasks.length === 0) return [];
 
-        const BATCH_SIZE = 3;
-        const delay = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
-        const createResults: { task: { id: string; name: string; year: number; month: number; displayOrder: number; isCompleted?: boolean } }[] = [];
+        const results: TaskWithCompletions[] = [];
 
-        for (let i = 0; i < tasks.length; i += BATCH_SIZE) {
-          const batch = tasks.slice(i, i + BATCH_SIZE);
-          const batchPromises = batch.map((task, j) => {
-            const idx = i + j;
-            const startDate = `${year}-${String(month).padStart(2, '0')}-${String(task.startDay).padStart(2, '0')}`;
-            const endDate = `${year}-${String(month).padStart(2, '0')}-${String(task.endDay).padStart(2, '0')}`;
-            return taskApi.createTask(
-              task.name,
-              year,
-              month,
-              startingOrder + idx,
-              startDate,
-              endDate,
-              task.startTime,
-              task.endTime,
-              'weekly'
-            );
+        for (let i = 0; i < tasks.length; i++) {
+          const task = tasks[i];
+          const startDate = `${year}-${String(month).padStart(2, '0')}-${String(task.startDay).padStart(2, '0')}`;
+          const endDate = `${year}-${String(month).padStart(2, '0')}-${String(task.endDay).padStart(2, '0')}`;
+
+          // タスクを作成（1件ずつ順次）
+          const result = await taskApi.createTask(
+            task.name,
+            year,
+            month,
+            startingOrder + i,
+            startDate,
+            endDate,
+            task.startTime,
+            task.endTime,
+            'weekly'
+          );
+
+          results.push({
+            id: result.task.id,
+            name: result.task.name,
+            year: result.task.year,
+            month: result.task.month,
+            displayOrder: result.task.displayOrder,
+            startDate,
+            endDate,
+            startTime: task.startTime,
+            endTime: task.endTime,
+            sourceType: 'weekly' as const,
+            isCompleted: result.task.isCompleted ?? false,
+            parentId: null,
+            completions: {},
+            level: 0,
           });
-          const batchResults = await Promise.all(batchPromises);
-          createResults.push(...batchResults);
-          if (i + BATCH_SIZE < tasks.length) {
-            await delay(100);
-          }
         }
 
-        return createResults.map((result, i) => ({
-          id: result.task.id,
-          name: result.task.name,
-          year: result.task.year,
-          month: result.task.month,
-          displayOrder: result.task.displayOrder,
-          startDate: `${year}-${String(month).padStart(2, '0')}-${String(tasks[i].startDay).padStart(2, '0')}`,
-          endDate: `${year}-${String(month).padStart(2, '0')}-${String(tasks[i].endDay).padStart(2, '0')}`,
-          startTime: tasks[i].startTime,
-          endTime: tasks[i].endTime,
-          sourceType: 'weekly' as const,
-          isCompleted: result.task.isCompleted ?? false,
-          parentId: null,
-          completions: {},
-          level: 0,
-        }));
+        return results;
       };
 
-      // 日次タスクを作成するヘルパー関数（階層なし、日付ごとに独立）
+      // 日次タスクを作成するヘルパー関数（順次処理版）
       const createDailyTasks = async (
         tasks: ExpandedDailyTask[],
         startingOrder: number
       ): Promise<TaskWithCompletions[]> => {
         if (tasks.length === 0) return [];
 
-        const BATCH_SIZE = 3;
-        const delay = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
-        const createResults: { task: { id: string; name: string; year: number; month: number; displayOrder: number; isCompleted?: boolean } }[] = [];
+        const results: TaskWithCompletions[] = [];
 
-        for (let i = 0; i < tasks.length; i += BATCH_SIZE) {
-          const batch = tasks.slice(i, i + BATCH_SIZE);
-          const batchPromises = batch.map((task, j) => {
-            const idx = i + j;
-            const startDate = `${year}-${String(month).padStart(2, '0')}-${String(task.startDay).padStart(2, '0')}`;
-            const endDate = `${year}-${String(month).padStart(2, '0')}-${String(task.endDay).padStart(2, '0')}`;
-            return taskApi.createTask(
-              task.name,
-              year,
-              month,
-              startingOrder + idx,
-              startDate,
-              endDate,
-              task.startTime,
-              task.endTime,
-              'daily'
-            );
+        for (let i = 0; i < tasks.length; i++) {
+          const task = tasks[i];
+          const startDate = `${year}-${String(month).padStart(2, '0')}-${String(task.startDay).padStart(2, '0')}`;
+          const endDate = `${year}-${String(month).padStart(2, '0')}-${String(task.endDay).padStart(2, '0')}`;
+
+          // タスクを作成（1件ずつ順次）
+          const result = await taskApi.createTask(
+            task.name,
+            year,
+            month,
+            startingOrder + i,
+            startDate,
+            endDate,
+            task.startTime,
+            task.endTime,
+            'daily'
+          );
+
+          results.push({
+            id: result.task.id,
+            name: result.task.name,
+            year: result.task.year,
+            month: result.task.month,
+            displayOrder: result.task.displayOrder,
+            startDate,
+            endDate,
+            startTime: task.startTime,
+            endTime: task.endTime,
+            sourceType: 'daily' as const,
+            isCompleted: result.task.isCompleted ?? false,
+            parentId: null,
+            completions: {},
+            level: 0,
           });
-          const batchResults = await Promise.all(batchPromises);
-          createResults.push(...batchResults);
-          if (i + BATCH_SIZE < tasks.length) {
-            await delay(100);
-          }
         }
 
-        return createResults.map((result, i) => ({
-          id: result.task.id,
-          name: result.task.name,
-          year: result.task.year,
-          month: result.task.month,
-          displayOrder: result.task.displayOrder,
-          startDate: `${year}-${String(month).padStart(2, '0')}-${String(tasks[i].startDay).padStart(2, '0')}`,
-          endDate: `${year}-${String(month).padStart(2, '0')}-${String(tasks[i].endDay).padStart(2, '0')}`,
-          startTime: tasks[i].startTime,
-          endTime: tasks[i].endTime,
-          sourceType: 'daily' as const,
-          isCompleted: result.task.isCompleted ?? false,
-          parentId: null,
-          completions: {},
-          level: 0,
-        }));
+        return results;
       };
 
       // 5種類のタスクを順次作成（DB接続プール制限対策）
