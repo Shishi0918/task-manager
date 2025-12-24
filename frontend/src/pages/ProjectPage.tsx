@@ -130,6 +130,9 @@ export function ProjectPage({ projectId, onBack, onNavigateToSettings }: Project
   const [displayYear, setDisplayYear] = useState(new Date().getFullYear());
   const [displayMonth, setDisplayMonth] = useState(new Date().getMonth() + 1);
 
+  // 仮想化: 表示する日付の範囲
+  const [visibleRange, setVisibleRange] = useState({ start: 0, end: 60 });
+
   // カレンダー開始位置（現在月の1ヶ月前から24ヶ月分）
   const calendarStart = useMemo(() => {
     const now = new Date();
@@ -200,13 +203,28 @@ export function ProjectPage({ projectId, onBack, onNavigateToSettings }: Project
     fetchData();
   }, [projectId]);
 
-  // スクロールで表示月を更新
+  // スクロールで表示月・表示範囲を更新
   const handleScroll = useCallback(() => {
     if (!scrollContainerRef.current) return;
     const scrollLeft = scrollContainerRef.current.scrollLeft;
+    const containerWidth = scrollContainerRef.current.clientWidth;
     const dayColumnWidth = 53;
-    const offset = 240;
-    const visibleDayIndex = Math.floor((scrollLeft + offset) / dayColumnWidth);
+    const fixedColumnsWidth = 240; // タスク列 + 担当者列
+
+    // 表示範囲の計算（バッファ含む）
+    const startIndex = Math.max(0, Math.floor((scrollLeft - fixedColumnsWidth) / dayColumnWidth) - 10);
+    const visibleColumns = Math.ceil(containerWidth / dayColumnWidth) + 20;
+    const endIndex = Math.min(calendarDays.length, startIndex + visibleColumns);
+
+    setVisibleRange(prev => {
+      if (prev.start !== startIndex || prev.end !== endIndex) {
+        return { start: startIndex, end: endIndex };
+      }
+      return prev;
+    });
+
+    // 表示月の更新
+    const visibleDayIndex = Math.floor((scrollLeft + fixedColumnsWidth) / dayColumnWidth);
     const clampedIndex = Math.max(0, Math.min(visibleDayIndex, calendarDays.length - 1));
     const visibleDay = calendarDays[clampedIndex];
     if (visibleDay && (visibleDay.year !== displayYear || visibleDay.month !== displayMonth)) {
@@ -227,8 +245,20 @@ export function ProjectPage({ projectId, onBack, onNavigateToSettings }: Project
   useEffect(() => {
     if (!loading && scrollContainerRef.current && calendarDays.length > 0) {
       scrollToToday();
+      // 初期可視範囲を設定
+      handleScroll();
     }
-  }, [loading, calendarDays, scrollToToday]);
+  }, [loading, calendarDays, scrollToToday, handleScroll]);
+
+  // 表示する日付（仮想化）
+  const visibleDays = useMemo(() => {
+    return calendarDays.slice(visibleRange.start, visibleRange.end);
+  }, [calendarDays, visibleRange.start, visibleRange.end]);
+
+  // 左側のスペーサー幅
+  const leftSpacerWidth = visibleRange.start * 53;
+  // 右側のスペーサー幅
+  const rightSpacerWidth = (calendarDays.length - visibleRange.end) * 53;
 
   // Enterキーで次のタスクを編集
   useEffect(() => {
@@ -713,7 +743,11 @@ export function ProjectPage({ projectId, onBack, onNavigateToSettings }: Project
                 <th className="px-2 py-2 text-xs font-medium bg-[#5B9BD5] text-white sticky left-[140px] z-30 w-[100px] min-w-[100px]" style={{ boxShadow: '1px 0 0 0 #d1d5db' }}>
                   担当者
                 </th>
-                {calendarDays.map((calDay, idx) => {
+                {/* 左スペーサー */}
+                {leftSpacerWidth > 0 && (
+                  <th className="bg-[#5B9BD5]" style={{ width: leftSpacerWidth, minWidth: leftSpacerWidth }} />
+                )}
+                {visibleDays.map((calDay, idx) => {
                   const date = new Date(calDay.year, calDay.month - 1, calDay.day);
                   const dayOfWeek = ['日', '月', '火', '水', '木', '金', '土'][date.getDay()];
                   const isSunday = date.getDay() === 0;
@@ -730,7 +764,7 @@ export function ProjectPage({ projectId, onBack, onNavigateToSettings }: Project
 
                   return (
                     <th
-                      key={idx}
+                      key={visibleRange.start + idx}
                       className={`border-r border-gray-200 px-1 py-2 text-xs font-medium w-[53px] min-w-[53px] ${isNonWorkday ? 'bg-[#6BA8D9]' : 'bg-[#5B9BD5]'} text-white ${calDay.isFirstDayOfMonth ? 'border-l-2 border-l-white' : ''}`}
                       title={holidayName || `${calDay.year}/${calDay.month}/${calDay.day}`}
                     >
@@ -745,6 +779,10 @@ export function ProjectPage({ projectId, onBack, onNavigateToSettings }: Project
                     </th>
                   );
                 })}
+                {/* 右スペーサー */}
+                {rightSpacerWidth > 0 && (
+                  <th className="bg-[#5B9BD5]" style={{ width: rightSpacerWidth, minWidth: rightSpacerWidth }} />
+                )}
               </tr>
             </thead>
             <tbody
@@ -847,7 +885,11 @@ export function ProjectPage({ projectId, onBack, onNavigateToSettings }: Project
                         ))}
                       </select>
                     </td>
-                    {calendarDays.map((calDay, idx) => {
+                    {/* 左スペーサー */}
+                    {leftSpacerWidth > 0 && (
+                      <td className="border-b border-gray-200" style={{ width: leftSpacerWidth, minWidth: leftSpacerWidth }} />
+                    )}
+                    {visibleDays.map((calDay, idx) => {
                       const dateStr = calDay.dateStr;
                       const date = new Date(calDay.year, calDay.month - 1, calDay.day);
                       const isWeekend = date.getDay() === 0 || date.getDay() === 6;
@@ -878,7 +920,7 @@ export function ProjectPage({ projectId, onBack, onNavigateToSettings }: Project
 
                       return (
                         <td
-                          key={idx}
+                          key={visibleRange.start + idx}
                           className={`border-b border-r border-gray-200 px-0.5 py-1 text-center w-[53px] min-w-[53px] ${
                             isNonWorkday ? 'bg-gray-100' : ''
                           } ${
@@ -909,13 +951,17 @@ export function ProjectPage({ projectId, onBack, onNavigateToSettings }: Project
                         </td>
                       );
                     })}
+                    {/* 右スペーサー */}
+                    {rightSpacerWidth > 0 && (
+                      <td className="border-b border-gray-200" style={{ width: rightSpacerWidth, minWidth: rightSpacerWidth }} />
+                    )}
                   </tr>
                 );
               })}
               {tasks.length === 0 && (
                 <tr>
                   <td
-                    colSpan={calendarDays.length + 2}
+                    colSpan={visibleDays.length + 4}
                     className="border border-gray-300 px-4 py-8 text-center text-gray-500"
                   >
                     タスクがありません。「タスク追加」ボタンから追加してください。
@@ -930,7 +976,7 @@ export function ProjectPage({ projectId, onBack, onNavigateToSettings }: Project
                 className="cursor-pointer hover:bg-gray-50 transition-colors"
               >
                 <td
-                  colSpan={calendarDays.length + 2}
+                  colSpan={visibleDays.length + 4}
                   className="border-b border-r border-gray-200 px-4 py-3 text-center text-gray-400 text-sm"
                 >
                   + クリックしてタスクを追加
