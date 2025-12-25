@@ -656,7 +656,11 @@ export function ProjectPage({ projectId, onBack, onNavigateToSettings }: Project
   // 日付範囲内判定
   const isDateInRange = (task: ProjectTask, dateStr: string): boolean => {
     if (!task.startDate || !task.endDate) return false;
-    return dateStr >= task.startDate && dateStr <= task.endDate;
+    // ISO形式からYYYY-MM-DD部分を抽出して比較
+    const normalizeDate = (d: string) => d.match(/^(\d{4}-\d{2}-\d{2})/)?.[1] || d;
+    const start = normalizeDate(task.startDate);
+    const end = normalizeDate(task.endDate);
+    return dateStr >= start && dateStr <= end;
   };
 
   // 日付クリック
