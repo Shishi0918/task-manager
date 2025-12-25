@@ -1120,7 +1120,6 @@ export function ProjectPage({ projectId, onBack, onNavigateToSettings }: Project
               <h1 className="text-xl font-bold text-gray-900">{project?.name || 'プロジェクト'}</h1>
             </div>
             <div className="flex items-center gap-3">
-              <span className="text-xl font-bold text-gray-800">{displayYear}年{displayMonth}月</span>
               <button onClick={scrollToToday} className="px-3 py-1 text-sm bg-blue-100 hover:bg-blue-200 rounded text-blue-700">
                 今日
               </button>
@@ -1148,7 +1147,7 @@ export function ProjectPage({ projectId, onBack, onNavigateToSettings }: Project
         )}
 
         {/* アクションボタン */}
-        <div className="mb-4 flex items-center gap-2 flex-wrap">
+        <div className="mb-4 flex items-center gap-2 flex-wrap relative">
           <button
             onMouseDown={(e) => { e.preventDefault(); handleAddTask(); }}
             className="px-4 py-2 bg-[#5B9BD5] text-white rounded-md hover:bg-[#4A8AC9] text-sm font-medium shadow-sm"
@@ -1200,6 +1199,7 @@ export function ProjectPage({ projectId, onBack, onNavigateToSettings }: Project
               className="hidden"
             />
           </label>
+          <span className="absolute left-1/2 transform -translate-x-1/2 text-3xl font-bold text-gray-800 pointer-events-none">{displayYear}年{displayMonth}月</span>
         </div>
 
         {/* ガントチャート */}
