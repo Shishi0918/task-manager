@@ -396,7 +396,7 @@ export const bulkSaveMembers = async (
 ): Promise<void> => {
   try {
     const { id } = req.params;
-    const { members } = req.body;
+    const { members } = req.body as { members: Array<{ id?: string; name: string; color: string }> };
 
     const project = await prisma.project.findFirst({
       where: { id, userId: req.userId! },
@@ -407,21 +407,49 @@ export const bulkSaveMembers = async (
       return;
     }
 
-    // Delete all existing members and recreate
-    await prisma.$transaction(async (tx) => {
-      await tx.projectMember.deleteMany({
-        where: { projectId: id },
-      });
+    // Get existing members
+    const existingMembers = await prisma.projectMember.findMany({
+      where: { projectId: id },
+    });
 
-      if (members && members.length > 0) {
-        await tx.projectMember.createMany({
-          data: members.map((m: { name: string; color: string }, i: number) => ({
-            projectId: id,
-            name: m.name,
-            color: m.color,
-            displayOrder: i + 1,
-          })),
+    const existingMemberIds = new Set(existingMembers.map(m => m.id));
+    const newMemberIds = new Set(members?.filter(m => m.id).map(m => m.id) || []);
+
+    await prisma.$transaction(async (tx) => {
+      // Delete members that are no longer in the list
+      const memberIdsToDelete = [...existingMemberIds].filter(id => !newMemberIds.has(id));
+      if (memberIdsToDelete.length > 0) {
+        await tx.projectMember.deleteMany({
+          where: { id: { in: memberIdsToDelete } },
         });
+      }
+
+      // Update existing members and create new ones
+      if (members && members.length > 0) {
+        for (let i = 0; i < members.length; i++) {
+          const m = members[i];
+          if (m.id && existingMemberIds.has(m.id)) {
+            // Update existing member
+            await tx.projectMember.update({
+              where: { id: m.id },
+              data: {
+                name: m.name,
+                color: m.color,
+                displayOrder: i + 1,
+              },
+            });
+          } else {
+            // Create new member
+            await tx.projectMember.create({
+              data: {
+                projectId: id,
+                name: m.name,
+                color: m.color,
+                displayOrder: i + 1,
+              },
+            });
+          }
+        }
       }
     });
 

@@ -113,7 +113,7 @@ export function ProjectFormPage({ projectId, onBack, onSuccess }: ProjectFormPag
         // Update members
         await projectApi.bulkSaveMembers(
           projectId,
-          validMembers.map(m => ({ name: m.name, color: m.color }))
+          validMembers.map(m => ({ id: m.id, name: m.name, color: m.color }))
         );
         onSuccess(projectId);
       } else {
