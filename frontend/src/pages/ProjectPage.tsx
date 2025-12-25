@@ -1,45 +1,10 @@
-import { useState, useEffect, useMemo, useCallback, useRef, memo } from 'react';
+import { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import { projectApi } from '../services/api';
 import type { ProjectTask, ProjectDetail, ProjectMember } from '../types';
 import { getHolidaysForMonth } from '../utils/holidays';
 import { sortTasksByStartDate } from '../utils/taskSort';
-
-// タスク名入力コンポーネント（独立させて再レンダリングを防ぐ）
-const TaskNameInput = memo(function TaskNameInput({
-  taskId,
-  initialName,
-  onSave,
-  onCancel,
-}: {
-  taskId: string;
-  initialName: string;
-  onSave: (taskId: string, name: string) => void;
-  onCancel: () => void;
-}) {
-  const [name, setName] = useState(initialName);
-  const [isComposing, setIsComposing] = useState(false);
-
-  return (
-    <input
-      type="text"
-      value={name}
-      onChange={(e) => setName(e.target.value)}
-      onCompositionStart={() => setIsComposing(true)}
-      onCompositionEnd={() => setIsComposing(false)}
-      onBlur={() => onSave(taskId, name)}
-      onKeyDown={(e) => {
-        if (e.key === 'Enter' && !isComposing) {
-          e.preventDefault();
-          onSave(taskId, name);
-        } else if (e.key === 'Escape') {
-          onCancel();
-        }
-      }}
-      autoFocus
-      className="flex-1 min-w-0 px-1 py-0 border border-blue-500 rounded focus:outline-none focus:ring-1 focus:ring-blue-500"
-    />
-  );
-});
+import { GanttChart } from '../components/GanttChart';
+import type { CalendarDay } from '../components/GanttChart';
 
 // 階層タスクをフラット化する関数
 const flattenTasks = (
@@ -55,15 +20,6 @@ const flattenTasks = (
   }
   return result;
 };
-
-// カレンダー日付の型
-interface CalendarDay {
-  year: number;
-  month: number;
-  day: number;
-  dateStr: string;
-  isFirstDayOfMonth: boolean;
-}
 
 // 複数月分の日付配列を生成
 const generateCalendarDays = (startYear: number, startMonth: number, monthCount: number): CalendarDay[] => {
@@ -124,7 +80,6 @@ export function ProjectPage({ projectId, onBack, onNavigateToSettings }: Project
   const [dragMode, setDragMode] = useState<'reorder' | 'nest' | 'unnest'>('reorder');
   const [nestTargetTaskId, setNestTargetTaskId] = useState<string | null>(null);
 
-  const tableRef = useRef<HTMLTableElement>(null);
   const scrollContainerRef = useRef<HTMLDivElement>(null);
 
   // 仮ID → 実IDのマッピング
@@ -709,12 +664,10 @@ export function ProjectPage({ projectId, onBack, onNavigateToSettings }: Project
 
   const handleDragOver = (e: React.DragEvent) => {
     e.preventDefault();
-    if (!draggedTaskId || !tableRef.current) return;
+    if (!draggedTaskId) return;
 
-    const tbody = tableRef.current.querySelector('tbody');
-    if (!tbody) return;
-
-    const rows = Array.from(tbody.querySelectorAll('tr[data-task-id]'));
+    // div-based structure: query all elements with data-task-id attribute
+    const rows = Array.from(document.querySelectorAll('[data-task-id]'));
     const mouseY = e.clientY;
 
     let foundTarget = false;
@@ -993,252 +946,51 @@ export function ProjectPage({ projectId, onBack, onNavigateToSettings }: Project
           </label>
         </div>
 
-        {/* テーブル */}
-        <div ref={scrollContainerRef} className="overflow-x-auto overflow-y-auto rounded-lg border border-gray-200 whitespace-nowrap" style={{ maxHeight: 'calc(100vh - 220px)' }}>
-          <table ref={tableRef} className="border-collapse inline-block align-top">
-            <thead className="sticky top-0 z-20">
-              <tr>
-                <th className="px-2 py-3 bg-[#5B9BD5] text-white sticky left-0 z-30 w-[240px] font-medium" style={{ boxShadow: '1px 0 0 0 #d1d5db' }}>
-                  <div className="flex items-center gap-2">
-                    <input
-                      type="checkbox"
-                      checked={tasks.length > 0 && checkedTasks.size === tasks.length}
-                      onChange={handleToggleAllTasks}
-                      className="w-4 h-4 cursor-pointer accent-blue-500"
-                      title="全選択/全解除"
-                    />
-                    <span className="text-sm">タスク</span>
-                  </div>
-                </th>
-                <th className="px-2 py-2 text-xs font-medium bg-[#5B9BD5] text-white w-[100px] min-w-[100px]" style={{ boxShadow: '1px 0 0 0 #d1d5db' }}>
-                  担当者
-                </th>
-                {calendarDays.map((calDay, idx) => {
-                  const date = new Date(calDay.year, calDay.month - 1, calDay.day);
-                  const dayOfWeek = ['日', '月', '火', '水', '木', '金', '土'][date.getDay()];
-                  const isSunday = date.getDay() === 0;
-                  const isSaturday = date.getDay() === 6;
-                  const holidaysForMonth = holidaysMap.get(`${calDay.year}-${calDay.month}`);
-                  const holidayName = holidaysForMonth?.get(calDay.day);
-                  const isHoliday = !!holidayName;
-                  const isNonWorkday = isSunday || isSaturday || isHoliday;
-
-                  const today = new Date();
-                  const isToday = calDay.year === today.getFullYear() &&
-                                  calDay.month === today.getMonth() + 1 &&
-                                  calDay.day === today.getDate();
-
-                  return (
-                    <th
-                      key={idx}
-                      className={`border-r border-gray-200 px-1 py-2 text-xs font-medium w-[53px] min-w-[53px] ${isNonWorkday ? 'bg-[#6BA8D9]' : 'bg-[#5B9BD5]'} text-white ${calDay.isFirstDayOfMonth ? 'border-l-2 border-l-white' : ''}`}
-                      title={holidayName || `${calDay.year}/${calDay.month}/${calDay.day}`}
-                    >
-                      {calDay.isFirstDayOfMonth && (
-                        <div className="text-[9px] text-white/80 -mb-0.5">{calDay.month}月</div>
-                      )}
-                      <div className={`font-semibold ${isHoliday ? 'text-red-200' : ''} ${isToday ? 'bg-white text-blue-600 rounded-full w-5 h-5 flex items-center justify-center mx-auto' : ''}`}>
-                        {calDay.day}
-                      </div>
-                      <div className={`text-[10px] ${isSunday || isHoliday ? 'text-red-200' : isSaturday ? 'text-blue-200' : 'text-white/70'}`}>{dayOfWeek}</div>
-                      {isHoliday && <div className="text-[8px] text-red-200">祝</div>}
-                    </th>
-                  );
-                })}
-              </tr>
-            </thead>
-            <tbody
-              onDragOver={handleDragOver}
-              onDragLeave={handleDragLeave}
-              onDrop={(e) => handleDrop(e)}
-            >
-              {tasks.map((task, index) => {
-                const taskStartDate = selectedStartDate[task.id];
-                const taskHoverDate = hoverDate[task.id];
-                const isChecked = checkedTasks.has(task.id);
-
-                const selectingTaskId = Object.keys(selectedStartDate).find(
-                  id => selectedStartDate[id] !== null && selectedStartDate[id] !== undefined
-                );
-                const isOtherTaskSelecting = selectingTaskId && selectingTaskId !== task.id;
-
-                const isCompletedTask = task.isCompleted;
-                const rowBgClass = isCompletedTask ? 'bg-gray-100' : 'bg-white';
-                const textColorClass = isCompletedTask ? 'text-gray-400' : '';
-
-                const isDragging = draggedTaskId === task.id;
-                const isDragOver = dragOverTaskId === task.id;
-                const isLastRow = index === tasks.length - 1;
-                const showBottomBorder = isLastRow && dragOverBottom;
-                const isNestTarget = nestTargetTaskId === task.id && dragMode === 'nest';
-                const taskLevel = task.level ?? 0;
-                const isUnnestMode = dragMode === 'unnest' && draggedTaskId === task.id;
-
-                // 担当者情報
-                const taskMember = task.memberId ? members.find(m => m.id === task.memberId) : null;
-                const memberColor = taskMember?.color || null;
-
-                return (
-                  <tr
-                    key={task.id}
-                    data-task-id={task.id}
-                    className={`${isCompletedTask ? 'opacity-60' : ''} ${isDragging ? 'opacity-50' : ''} ${isDragOver ? 'border-t-2 border-t-blue-500' : ''} ${showBottomBorder ? 'border-b-2 border-b-blue-500' : ''} ${isNestTarget ? 'bg-green-100' : ''} ${isUnnestMode ? 'bg-yellow-100' : ''}`}
-                    draggable={!isCompletedTask}
-                    onDragStart={(e) => handleDragStart(e, task.id)}
-                    onDrop={(e) => handleDrop(e, task.id)}
-                    onDragEnd={handleDragEnd}
-                  >
-                    <td
-                      className={`border-b border-gray-200 px-1 py-1 sticky left-0 ${isNestTarget ? 'bg-green-50' : isUnnestMode ? 'bg-amber-50' : rowBgClass} z-10 w-[240px] overflow-hidden ${textColorClass}`}
-                      style={{
-                        paddingLeft: `${8 + taskLevel * 16}px`,
-                        boxShadow: '1px 0 0 0 #e5e7eb'
-                      }}
-                    >
-                      <div className="flex items-center gap-1">
-                        {!isCompletedTask && (
-                          <span className="cursor-grab text-gray-400 hover:text-gray-600 flex-shrink-0" title="ドラッグして並び替え">
-                            ⋮⋮
-                          </span>
-                        )}
-                        <input
-                          type="checkbox"
-                          checked={isChecked}
-                          onClick={(e) => handleToggleTaskCheck(task.id, e)}
-                          onChange={() => {}}
-                          className="w-4 h-4 cursor-pointer flex-shrink-0"
-                        />
-                        {editingTaskId === task.id && !isCompletedTask ? (
-                          <TaskNameInput
-                            taskId={task.id}
-                            initialName={task.name}
-                            onSave={handleSaveTaskName}
-                            onCancel={handleCancelEdit}
-                          />
-                        ) : (
-                          <div
-                            onClick={() => !isCompletedTask && setEditingTaskId(task.id)}
-                            className={`min-h-[20px] flex items-center flex-1 ${isCompletedTask ? 'cursor-default' : 'cursor-text'}`}
-                          >
-                            <span className="whitespace-nowrap">
-                              {task.name || <span className="text-gray-400">タスク名</span>}
-                            </span>
-                          </div>
-                        )}
-                      </div>
-                    </td>
-                    <td
-                      className={`border-b border-gray-200 px-1 py-1 text-center w-[100px] min-w-[100px]`}
-                      style={{
-                        boxShadow: '1px 0 0 0 #e5e7eb',
-                        backgroundColor: memberColor || (isCompletedTask ? '#f3f4f6' : '#ffffff'),
-                      }}
-                    >
-                      <select
-                        value={task.memberId || ''}
-                        onChange={(e) => handleMemberChange(task.id, e.target.value || null)}
-                        disabled={isCompletedTask}
-                        className="w-full px-0.5 py-0.5 text-xs border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-blue-500"
-                        style={{ backgroundColor: memberColor ? 'rgba(255,255,255,0.8)' : 'white' }}
-                      >
-                        <option value="">--</option>
-                        {members.map(m => (
-                          <option key={m.id} value={m.id}>{m.name}</option>
-                        ))}
-                      </select>
-                    </td>
-                    {calendarDays.map((calDay, idx) => {
-                      const dateStr = calDay.dateStr;
-                      const date = new Date(calDay.year, calDay.month - 1, calDay.day);
-                      const isWeekend = date.getDay() === 0 || date.getDay() === 6;
-                      const holidaysForMonth = holidaysMap.get(`${calDay.year}-${calDay.month}`);
-                      const isHoliday = !!holidaysForMonth?.get(calDay.day);
-                      const isNonWorkday = isWeekend || isHoliday;
-                      const inRange = isDateInRange(task, dateStr);
-                      const isStartDay = taskStartDate === dateStr;
-
-                      const isSelectingEndDay = taskStartDate !== null && taskStartDate !== undefined;
-                      const isBeforeStartDay = isSelectingEndDay && dateStr < taskStartDate;
-
-                      const isInPreviewRange =
-                        isSelectingEndDay &&
-                        taskHoverDate !== null &&
-                        taskHoverDate !== undefined &&
-                        taskHoverDate >= taskStartDate &&
-                        dateStr >= taskStartDate &&
-                        dateStr <= taskHoverDate;
-
-                      const isRangeStart = inRange && task.startDate === dateStr;
-                      const isRangeEnd = inRange && task.endDate === dateStr;
-
-                      const isCellDisabled = isCompletedTask || !!isOtherTaskSelecting || isBeforeStartDay;
-
-                      // バーの色（担当者色またはデフォルト）
-                      const barColor = memberColor || '#85c1e9';
-
-                      return (
-                        <td
-                          key={idx}
-                          className={`border-b border-r border-gray-200 px-0.5 py-1 text-center w-[53px] min-w-[53px] ${
-                            isNonWorkday ? 'bg-gray-100' : ''
-                          } ${
-                            isCellDisabled ? 'cursor-not-allowed' : 'cursor-pointer'
-                          } ${calDay.isFirstDayOfMonth ? 'border-l-2 border-l-gray-300' : ''}`}
-                          onClick={() => !isCellDisabled && handleCellClick(task.id, dateStr)}
-                          onMouseEnter={() => !isCellDisabled && setHoverDate({ ...hoverDate, [task.id]: dateStr })}
-                          onMouseLeave={() => !isCellDisabled && setHoverDate({ ...hoverDate, [task.id]: null })}
-                        >
-                          <div
-                            className={`h-5 ${
-                              isCompletedTask ? 'bg-gray-50' : ''
-                            } ${
-                              !isCompletedTask && isStartDay
-                                ? 'rounded animate-pulse'
-                                : !isCompletedTask && isInPreviewRange
-                                ? 'rounded animate-pulse'
-                                : !isCompletedTask && inRange
-                                ? `${isRangeStart ? 'rounded-l' : ''} ${isRangeEnd ? 'rounded-r' : ''}`
-                                : ''
-                            }`}
-                            style={
-                              !isCompletedTask && (isStartDay || isInPreviewRange || inRange)
-                                ? { backgroundColor: barColor }
-                                : undefined
-                            }
-                          />
-                        </td>
-                      );
-                    })}
-                  </tr>
-                );
-              })}
-              {tasks.length === 0 && (
-                <tr>
-                  <td
-                    colSpan={calendarDays.length + 2}
-                    className="border border-gray-300 px-4 py-8 text-center text-gray-500"
-                  >
-                    タスクがありません。「タスク追加」ボタンから追加してください。
-                  </td>
-                </tr>
-              )}
-              <tr
-                onClick={() => {
-                  setEditingTaskId(null);
-                  setTimeout(() => handleAddTask(), 0);
-                }}
-                className="cursor-pointer hover:bg-gray-50 transition-colors"
-              >
-                <td
-                  colSpan={calendarDays.length + 2}
-                  className="border-b border-r border-gray-200 px-4 py-3 text-center text-gray-400 text-sm"
-                >
-                  + クリックしてタスクを追加
-                </td>
-              </tr>
-            </tbody>
-          </table>
-        </div>
+        {/* ガントチャート */}
+        <GanttChart
+          tasks={tasks}
+          members={members}
+          calendarDays={calendarDays}
+          holidaysMap={holidaysMap}
+          checkedTasks={checkedTasks}
+          editingTaskId={editingTaskId}
+          selectedStartDate={selectedStartDate}
+          hoverDate={hoverDate}
+          draggedTaskId={draggedTaskId}
+          dragOverTaskId={dragOverTaskId}
+          dragOverBottom={dragOverBottom}
+          dragMode={dragMode}
+          nestTargetTaskId={nestTargetTaskId}
+          scrollContainerRef={scrollContainerRef}
+          onToggleAllTasks={handleToggleAllTasks}
+          onToggleTaskCheck={handleToggleTaskCheck}
+          onEditTask={(taskId) => setEditingTaskId(taskId)}
+          onSaveTaskName={handleSaveTaskName}
+          onCancelEdit={handleCancelEdit}
+          onMemberChange={handleMemberChange}
+          onCellClick={handleCellClick}
+          onCellHover={(taskId, dateStr) => setHoverDate({ ...hoverDate, [taskId]: dateStr })}
+          onDragStart={handleDragStart}
+          onDragOver={handleDragOver}
+          onDragLeave={handleDragLeave}
+          onDrop={handleDrop}
+          onDragEnd={handleDragEnd}
+          onAddTask={() => {
+            setEditingTaskId(null);
+            setTimeout(() => handleAddTask(), 0);
+          }}
+          onScroll={(scrollLeft) => {
+            const dayColumnWidth = 53;
+            const visibleDayIndex = Math.floor(scrollLeft / dayColumnWidth);
+            const clampedIndex = Math.max(0, Math.min(visibleDayIndex, calendarDays.length - 1));
+            const visibleDay = calendarDays[clampedIndex];
+            if (visibleDay && (visibleDay.year !== displayYear || visibleDay.month !== displayMonth)) {
+              setDisplayYear(visibleDay.year);
+              setDisplayMonth(visibleDay.month);
+            }
+          }}
+          isDateInRange={isDateInRange}
+        />
       </main>
     </div>
   );
