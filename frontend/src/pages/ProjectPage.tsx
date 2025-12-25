@@ -601,12 +601,19 @@ export function ProjectPage({ projectId, onBack, onNavigateToSettings }: Project
           parentName = '';
         }
 
+        // 日付をYYYY-MM-DD形式に変換（ISO形式から抽出）
+        const formatDateForApi = (dateStr: string): string | null => {
+          if (!dateStr) return null;
+          const match = dateStr.match(/^(\d{4}-\d{2}-\d{2})/);
+          return match ? match[1] : dateStr;
+        };
+
         try {
           const result = await projectApi.createTask(projectId, {
             name,
             memberId: memberName ? memberNameToId.get(memberName) || null : null,
-            startDate: startDate || null,
-            endDate: endDate || null,
+            startDate: formatDateForApi(startDate),
+            endDate: formatDateForApi(endDate),
             displayOrder: maxOrder + i + 1,
           });
 
