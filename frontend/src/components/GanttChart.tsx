@@ -1,4 +1,4 @@
-import { useRef, useCallback, memo } from 'react';
+import { useRef, useCallback, memo, useState, useLayoutEffect } from 'react';
 import type { ProjectTask, ProjectMember } from '../types';
 
 // タスク名入力コンポーネント
@@ -37,8 +37,6 @@ export const TaskNameInput = memo(function TaskNameInput({
     />
   );
 });
-
-import { useState } from 'react';
 
 // カレンダー日付の型
 export interface CalendarDay {
@@ -117,6 +115,29 @@ export function GanttChart({
   const fixedRef = useRef<HTMLDivElement>(null);
   const internalScrollRef = useRef<HTMLDivElement>(null);
   const headerScrollRef = useRef<HTMLDivElement>(null);
+  const leftRowRefs = useRef<Map<string, HTMLDivElement>>(new Map());
+  const rightRowRefs = useRef<Map<string, HTMLDivElement>>(new Map());
+
+  // 行の高さを同期
+  const [rowHeights, setRowHeights] = useState<Record<string, number>>({});
+
+  useLayoutEffect(() => {
+    const newHeights: Record<string, number> = {};
+    leftRowRefs.current.forEach((el, taskId) => {
+      if (el) {
+        newHeights[taskId] = el.offsetHeight;
+      }
+    });
+
+    // 高さが変わった場合のみ更新
+    const hasChanges = Object.keys(newHeights).some(
+      id => newHeights[id] !== rowHeights[id]
+    ) || Object.keys(newHeights).length !== Object.keys(rowHeights).length;
+
+    if (hasChanges) {
+      setRowHeights(newHeights);
+    }
+  }, [tasks, editingTaskId]);
 
   // Use provided ref or internal ref
   const scrollRef = scrollContainerRef || internalScrollRef;
@@ -143,6 +164,7 @@ export function GanttChart({
   const MEMBER_COL_WIDTH = 100;
   const DATE_COL_WIDTH = 53;
   const FIXED_WIDTH = TASK_COL_WIDTH + MEMBER_COL_WIDTH;
+  const MIN_ROW_HEIGHT = 36;
 
   return (
     <div className="flex rounded-lg border border-gray-200 overflow-hidden" style={{ maxHeight: 'calc(100vh - 220px)' }}>
@@ -171,6 +193,9 @@ export function GanttChart({
           className="overflow-y-auto overflow-x-hidden"
           style={{ maxHeight: 'calc(100vh - 280px)' }}
           onScroll={() => syncVerticalScroll('fixed')}
+          onDragOver={onDragOver}
+          onDragLeave={onDragLeave}
+          onDrop={(e) => onDrop(e)}
         >
           {tasks.map((task, index) => {
             const isChecked = checkedTasks.has(task.id);
@@ -191,9 +216,13 @@ export function GanttChart({
             return (
               <div
                 key={task.id}
+                ref={(el) => {
+                  if (el) leftRowRefs.current.set(task.id, el);
+                  else leftRowRefs.current.delete(task.id);
+                }}
                 data-task-id={task.id}
                 className={`flex ${isCompletedTask ? 'opacity-60' : ''} ${isDragging ? 'opacity-50' : ''} ${isDragOver ? 'border-t-2 border-t-blue-500' : ''} ${showBottomBorder ? 'border-b-2 border-b-blue-500' : ''}`}
-                style={{ height: 36 }}
+                style={{ minHeight: MIN_ROW_HEIGHT }}
                 draggable={!isCompletedTask}
                 onDragStart={(e) => onDragStart(e, task.id)}
                 onDrop={(e) => onDrop(e, task.id)}
@@ -201,7 +230,7 @@ export function GanttChart({
               >
                 {/* タスク名セル */}
                 <div
-                  className={`border-b border-gray-200 px-1 py-1 overflow-hidden ${textColorClass}`}
+                  className={`border-b border-gray-200 px-1 py-1 ${textColorClass}`}
                   style={{
                     width: TASK_COL_WIDTH,
                     paddingLeft: `${8 + taskLevel * 16}px`,
@@ -209,9 +238,9 @@ export function GanttChart({
                     borderRight: '1px solid #e5e7eb',
                   }}
                 >
-                  <div className="flex items-center gap-1 h-full">
+                  <div className="flex items-start gap-1 min-h-[28px]">
                     {!isCompletedTask && (
-                      <span className="cursor-grab text-gray-400 hover:text-gray-600 flex-shrink-0" title="ドラッグして並び替え">
+                      <span className="cursor-grab text-gray-400 hover:text-gray-600 flex-shrink-0 mt-1" title="ドラッグして並び替え">
                         ⋮⋮
                       </span>
                     )}
@@ -220,7 +249,7 @@ export function GanttChart({
                       checked={isChecked}
                       onClick={(e) => onToggleTaskCheck(task.id, e)}
                       onChange={() => {}}
-                      className="w-4 h-4 cursor-pointer flex-shrink-0"
+                      className="w-4 h-4 cursor-pointer flex-shrink-0 mt-1"
                     />
                     {editingTaskId === task.id && !isCompletedTask ? (
                       <TaskNameInput
@@ -232,9 +261,10 @@ export function GanttChart({
                     ) : (
                       <div
                         onClick={() => !isCompletedTask && onEditTask(task.id)}
-                        className={`min-h-[20px] flex items-center flex-1 truncate ${isCompletedTask ? 'cursor-default' : 'cursor-text'}`}
+                        className={`flex-1 leading-tight ${isCompletedTask ? 'cursor-default' : 'cursor-text'}`}
+                        title={task.name || ''}
                       >
-                        <span className="truncate">
+                        <span className="break-words text-sm">
                           {task.name || <span className="text-gray-400">タスク名</span>}
                         </span>
                       </div>
@@ -358,8 +388,19 @@ export function GanttChart({
             );
             const isOtherTaskSelecting = selectingTaskId && selectingTaskId !== task.id;
 
+            // 左パネルの行高さに合わせる
+            const rowHeight = rowHeights[task.id] || MIN_ROW_HEIGHT;
+
             return (
-              <div key={task.id} className="flex" style={{ height: 36 }}>
+              <div
+                key={task.id}
+                ref={(el) => {
+                  if (el) rightRowRefs.current.set(task.id, el);
+                  else rightRowRefs.current.delete(task.id);
+                }}
+                className="flex"
+                style={{ height: rowHeight }}
+              >
                 {calendarDays.map((calDay, idx) => {
                   const dateStr = calDay.dateStr;
                   const date = new Date(calDay.year, calDay.month - 1, calDay.day);
@@ -390,7 +431,7 @@ export function GanttChart({
                   return (
                     <div
                       key={idx}
-                      className={`border-b border-r border-gray-200 px-0.5 py-1 flex-shrink-0 ${
+                      className={`border-b border-r border-gray-200 px-0.5 flex items-center flex-shrink-0 ${
                         isNonWorkday ? 'bg-gray-100' : 'bg-white'
                       } ${
                         isCellDisabled ? 'cursor-not-allowed' : 'cursor-pointer'
@@ -401,7 +442,7 @@ export function GanttChart({
                       onMouseLeave={() => !isCellDisabled && onCellHover(task.id, null)}
                     >
                       <div
-                        className={`h-5 ${
+                        className={`h-5 w-full ${
                           isCompletedTask ? 'bg-gray-50' : ''
                         } ${
                           !isCompletedTask && isStartDay

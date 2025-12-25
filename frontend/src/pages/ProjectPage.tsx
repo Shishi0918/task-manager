@@ -166,10 +166,27 @@ export function ProjectPage({ projectId, onBack, onNavigateToSettings }: Project
 
       console.log('After dedup:', uniqueTasks.length);
 
-      // displayOrderでソート、levelは全て0（階層表示なし）
+      // parentIdからlevelを計算する関数
+      const calculateLevel = (taskId: string, taskMap: Map<string, ProjectTask>, visited: Set<string> = new Set()): number => {
+        if (visited.has(taskId)) return 0; // 循環参照防止
+        visited.add(taskId);
+
+        const task = taskMap.get(taskId);
+        if (!task || !task.parentId) return 0;
+
+        const parentTask = taskMap.get(task.parentId);
+        if (!parentTask) return 0;
+
+        return 1 + calculateLevel(task.parentId, taskMap, visited);
+      };
+
+      // タスクマップを作成
+      const taskMap = new Map(uniqueTasks.map(t => [t.id, t]));
+
+      // displayOrderでソート、levelをparentIdから計算
       const sortedTasks = uniqueTasks
         .sort((a, b) => a.displayOrder - b.displayOrder)
-        .map(t => ({ ...t, level: 0 }));
+        .map(t => ({ ...t, level: calculateLevel(t.id, taskMap) }));
 
       setTasks(sortedTasks);
     } catch (err) {
@@ -454,13 +471,16 @@ export function ProjectPage({ projectId, onBack, onNavigateToSettings }: Project
     }
   };
 
-  // CSVダウンロード（階層情報なし）
+  // CSVダウンロード（階層情報あり）
   const handleCsvDownload = () => {
-    const headers = ['タスク名', '担当者', '開始日', '終了日', '完了'];
+    const headers = ['タスク名', '親タスク', 'レベル', '担当者', '開始日', '終了日', '完了'];
     const rows = tasks.map(task => {
       const member = members.find(m => m.id === task.memberId);
+      const parentTask = task.parentId ? tasks.find(t => t.id === task.parentId) : null;
       return [
         task.name,
+        parentTask?.name || '',
+        String(task.level ?? 0),
         member?.name || '',
         task.startDate || '',
         task.endDate || '',
@@ -482,7 +502,7 @@ export function ProjectPage({ projectId, onBack, onNavigateToSettings }: Project
     URL.revokeObjectURL(url);
   };
 
-  // CSVインポート（階層情報なし）
+  // CSVインポート（階層情報あり）
   const handleCsvImport = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
@@ -528,8 +548,11 @@ export function ProjectPage({ projectId, onBack, onNavigateToSettings }: Project
         return result;
       };
 
+      // ヘッダーを解析してフォーマットを判定
+      const headerLine = parseCsvLine(lines[0]);
+      const hasHierarchy = headerLine.includes('親タスク') || headerLine.includes('レベル');
+
       // ヘッダーをスキップしてデータ行をパース
-      // フォーマット: タスク名, 担当者, 開始日, 終了日, 完了
       const csvRows = lines.slice(1).map(line => parseCsvLine(line));
 
       // 既存タスク名のセット
@@ -550,11 +573,34 @@ export function ProjectPage({ projectId, onBack, onNavigateToSettings }: Project
       // メンバー名→IDマップ
       const memberNameToId = new Map(members.map(m => [m.name, m.id]));
 
+      // タスク名→IDマップ（既存 + 新規作成分）
+      const taskNameToId = new Map(tasks.map(t => [t.name, t.id]));
+
       // タスクを作成
       const maxOrder = tasks.length > 0 ? Math.max(...tasks.map(t => t.displayOrder)) : 0;
 
+      // 階層情報を持つタスクの親設定を後で行う
+      const tasksToSetParent: { taskId: string; parentName: string }[] = [];
+
       for (let i = 0; i < newRows.length; i++) {
-        const [name, memberName, startDate, endDate, completed] = newRows[i];
+        let name: string, parentName: string, memberName: string, startDate: string, endDate: string, completed: string;
+
+        if (hasHierarchy) {
+          // 新フォーマット: タスク名, 親タスク, レベル, 担当者, 開始日, 終了日, 完了
+          const row = newRows[i];
+          name = row[0];
+          parentName = row[1];
+          // row[2] is level (not used, calculated from parentId)
+          memberName = row[3];
+          startDate = row[4];
+          endDate = row[5];
+          completed = row[6];
+        } else {
+          // 旧フォーマット: タスク名, 担当者, 開始日, 終了日, 完了
+          [name, memberName, startDate, endDate, completed] = newRows[i];
+          parentName = '';
+        }
+
         try {
           const result = await projectApi.createTask(projectId, {
             name,
@@ -563,11 +609,32 @@ export function ProjectPage({ projectId, onBack, onNavigateToSettings }: Project
             endDate: endDate || null,
             displayOrder: maxOrder + i + 1,
           });
+
+          // 新規作成したタスクをマップに追加
+          taskNameToId.set(name, result.task.id);
+
           if (completed === '完了') {
             await projectApi.updateTask(projectId, result.task.id, { isCompleted: true });
           }
+
+          // 親タスクがある場合は後で設定
+          if (parentName) {
+            tasksToSetParent.push({ taskId: result.task.id, parentName });
+          }
         } catch (err) {
           console.error(`タスク "${name}" の作成に失敗:`, err);
+        }
+      }
+
+      // 親タスクを設定
+      for (const { taskId, parentName } of tasksToSetParent) {
+        const parentId = taskNameToId.get(parentName);
+        if (parentId) {
+          try {
+            await projectApi.updateTask(projectId, taskId, { parentId });
+          } catch (err) {
+            console.error(`タスクの親設定に失敗:`, err);
+          }
         }
       }
 
@@ -666,9 +733,28 @@ export function ProjectPage({ projectId, onBack, onNavigateToSettings }: Project
     e.preventDefault();
     if (!draggedTaskId) return;
 
+    // ドラッグ中のタスクの情報を取得
+    const draggedTask = tasks.find(t => t.id === draggedTaskId);
+    const hasParent = !!draggedTask?.parentId;
+
     // div-based structure: query all elements with data-task-id attribute
     const rows = Array.from(document.querySelectorAll('[data-task-id]'));
     const mouseY = e.clientY;
+    const mouseX = e.clientX;
+
+    // 階層解除判定: 親を持つタスクをドラッグ中で、マウスが左端付近にある場合
+    const UNNEST_THRESHOLD = 50; // 左端50px以内でunnestモード
+    const container = document.querySelector('[data-task-id]')?.parentElement;
+    const containerLeft = container?.getBoundingClientRect().left ?? 0;
+    const relativeX = mouseX - containerLeft;
+
+    if (hasParent && relativeX < UNNEST_THRESHOLD) {
+      setDragOverTaskId(null);
+      setDragOverBottom(false);
+      setDragMode('unnest');
+      setNestTargetTaskId(null);
+      return;
+    }
 
     let foundTarget = false;
     for (const row of rows) {
@@ -742,26 +828,122 @@ export function ProjectPage({ projectId, onBack, onNavigateToSettings }: Project
         return;
       }
 
+      // 子タスクを含めて移動するタスクを収集
+      const collectTaskAndChildren = (taskId: string, allTasks: ProjectTask[]): string[] => {
+        const result: string[] = [taskId];
+        const children = allTasks.filter(t => t.parentId === taskId);
+        for (const child of children) {
+          result.push(...collectTaskAndChildren(child.id, allTasks));
+        }
+        return result;
+      };
+
+      const tasksToMove = collectTaskAndChildren(draggedTaskId, tasks);
+
+      // ターゲットが移動対象の子タスクの場合はスキップ（自分の子の下に階層化しようとしている）
+      if (tasksToMove.includes(currentNestTarget)) {
+        setDraggedTaskId(null);
+        return;
+      }
+
       setTasks(prevTasks => {
-        const newTasks = [...prevTasks];
-        const draggedIndex = newTasks.findIndex(t => t.id === draggedTaskId);
-        const targetIndex = newTasks.findIndex(t => t.id === currentNestTarget);
-        if (draggedIndex === -1 || targetIndex === -1) return prevTasks;
+        const targetTask = prevTasks.find(t => t.id === currentNestTarget);
+        if (!targetTask) return prevTasks;
 
-        const draggedTask = newTasks[draggedIndex];
-        draggedTask.parentId = currentNestTarget;
-        draggedTask.level = (newTasks[targetIndex].level ?? 0) + 1;
+        const targetLevel = targetTask.level ?? 0;
+        const draggedTask = prevTasks.find(t => t.id === draggedTaskId);
+        if (!draggedTask) return prevTasks;
 
-        newTasks.splice(draggedIndex, 1);
-        const newTargetIndex = newTasks.findIndex(t => t.id === currentNestTarget);
-        newTasks.splice(newTargetIndex + 1, 0, draggedTask);
+        const oldLevel = draggedTask.level ?? 0;
+        const levelDiff = (targetLevel + 1) - oldLevel;
 
-        return newTasks;
+        // 移動するタスクを抽出（順序を保持）
+        const movedTasks: ProjectTask[] = [];
+        for (const taskId of tasksToMove) {
+          const task = prevTasks.find(t => t.id === taskId);
+          if (task) {
+            // レベルを調整
+            const newTask = { ...task };
+            if (taskId === draggedTaskId) {
+              newTask.parentId = currentNestTarget;
+              newTask.level = targetLevel + 1;
+            } else {
+              // 子タスクはレベル差分を適用
+              newTask.level = (task.level ?? 0) + levelDiff;
+            }
+            movedTasks.push(newTask);
+          }
+        }
+
+        // 移動するタスクを元の配列から削除
+        const filteredTasks = prevTasks.filter(t => !tasksToMove.includes(t.id));
+
+        // ターゲットの新しいインデックスを見つける
+        const newTargetIndex = filteredTasks.findIndex(t => t.id === currentNestTarget);
+
+        // ターゲットの直後に挿入
+        filteredTasks.splice(newTargetIndex + 1, 0, ...movedTasks);
+
+        return filteredTasks;
       });
 
       setDraggedTaskId(null);
       projectApi.updateTask(projectId, draggedTaskId, { parentId: currentNestTarget }).catch(err => {
         setError(err instanceof Error ? err.message : '階層の変更に失敗しました');
+        fetchData();
+      });
+      return;
+    }
+
+    // 階層解除モード
+    if (currentDragMode === 'unnest') {
+      const draggedTask = tasks.find(t => t.id === draggedTaskId);
+      if (!draggedTask || !draggedTask.parentId) {
+        setDraggedTaskId(null);
+        return;
+      }
+
+      // 仮IDの場合はスキップ
+      if (draggedTaskId.startsWith('temp-')) {
+        setDraggedTaskId(null);
+        return;
+      }
+
+      // 現在の親タスクを取得
+      const currentParent = tasks.find(t => t.id === draggedTask.parentId);
+      // 新しい親（祖父母）を取得。親がなければnull（ルートレベルへ）
+      const newParentId = currentParent?.parentId || null;
+      const newLevel = newParentId ? (tasks.find(t => t.id === newParentId)?.level ?? 0) + 1 : 0;
+
+      // 子タスクを含めて移動するタスクを収集
+      const collectTaskAndChildren = (taskId: string, allTasks: ProjectTask[]): string[] => {
+        const result: string[] = [taskId];
+        const children = allTasks.filter(t => t.parentId === taskId);
+        for (const child of children) {
+          result.push(...collectTaskAndChildren(child.id, allTasks));
+        }
+        return result;
+      };
+
+      const tasksToMove = collectTaskAndChildren(draggedTaskId, tasks);
+      const oldLevel = draggedTask.level ?? 0;
+      const levelDiff = newLevel - oldLevel;
+
+      setTasks(prevTasks => {
+        // レベルを調整
+        return prevTasks.map(task => {
+          if (task.id === draggedTaskId) {
+            return { ...task, parentId: newParentId, level: newLevel };
+          } else if (tasksToMove.includes(task.id)) {
+            return { ...task, level: (task.level ?? 0) + levelDiff };
+          }
+          return task;
+        });
+      });
+
+      setDraggedTaskId(null);
+      projectApi.updateTask(projectId, draggedTaskId, { parentId: newParentId }).catch(err => {
+        setError(err instanceof Error ? err.message : '階層解除に失敗しました');
         fetchData();
       });
       return;
@@ -776,24 +958,54 @@ export function ProjectPage({ projectId, onBack, onNavigateToSettings }: Project
     // 最後に移動
     if (isDropToBottom) {
       const draggedIndex = tasks.findIndex(t => t.id === draggedTaskId);
-      if (draggedIndex === -1 || draggedIndex === tasks.length - 1) {
+      if (draggedIndex === -1) {
         setDraggedTaskId(null);
         return;
       }
 
-      const newTasks = [...tasks];
-      const [movedTask] = newTasks.splice(draggedIndex, 1);
-      newTasks.push(movedTask);
+      // 子タスクを含めて移動するタスクを収集
+      const collectTaskAndChildren = (taskId: string, allTasks: ProjectTask[]): string[] => {
+        const result: string[] = [taskId];
+        const children = allTasks.filter(t => t.parentId === taskId);
+        for (const child of children) {
+          result.push(...collectTaskAndChildren(child.id, allTasks));
+        }
+        return result;
+      };
 
-      const updatePromises: Promise<any>[] = [];
-      for (let i = 0; i < newTasks.length; i++) {
-        if (newTasks[i].displayOrder !== i + 1 && !newTasks[i].id.startsWith('temp-')) {
-          newTasks[i] = { ...newTasks[i], displayOrder: i + 1 };
-          updatePromises.push(projectApi.updateTask(projectId, newTasks[i].id, { displayOrder: i + 1 }));
+      const tasksToMove = collectTaskAndChildren(draggedTaskId, tasks);
+
+      // 移動するタスクを抽出（順序を保持）
+      const movedTasks: ProjectTask[] = [];
+      for (const taskId of tasksToMove) {
+        const idx = tasks.findIndex(t => t.id === taskId);
+        if (idx !== -1) {
+          movedTasks.push(tasks[idx]);
         }
       }
 
-      setTasks(newTasks);
+      // すでに最後にある場合はスキップ
+      const lastTaskId = tasks[tasks.length - 1]?.id;
+      if (tasksToMove.includes(lastTaskId)) {
+        setDraggedTaskId(null);
+        return;
+      }
+
+      // 移動するタスクを元の配列から削除
+      const filteredTasks = tasks.filter(t => !tasksToMove.includes(t.id));
+
+      // 最後に追加
+      filteredTasks.push(...movedTasks);
+
+      const updatePromises: Promise<any>[] = [];
+      for (let i = 0; i < filteredTasks.length; i++) {
+        if (filteredTasks[i].displayOrder !== i + 1 && !filteredTasks[i].id.startsWith('temp-')) {
+          filteredTasks[i] = { ...filteredTasks[i], displayOrder: i + 1 };
+          updatePromises.push(projectApi.updateTask(projectId, filteredTasks[i].id, { displayOrder: i + 1 }));
+        }
+      }
+
+      setTasks(filteredTasks);
       setDraggedTaskId(null);
       await Promise.all(updatePromises);
       return;
@@ -812,20 +1024,53 @@ export function ProjectPage({ projectId, onBack, onNavigateToSettings }: Project
       return;
     }
 
-    const newTasks = [...tasks];
-    const [movedTask] = newTasks.splice(draggedIndex, 1);
-    const adjustedTargetIndex = draggedIndex < targetIndex ? targetIndex - 1 : targetIndex;
-    newTasks.splice(adjustedTargetIndex, 0, movedTask);
+    // 子タスクを含めて移動するタスクを収集
+    const collectTaskAndChildren = (taskId: string, allTasks: ProjectTask[]): string[] => {
+      const result: string[] = [taskId];
+      const children = allTasks.filter(t => t.parentId === taskId);
+      for (const child of children) {
+        result.push(...collectTaskAndChildren(child.id, allTasks));
+      }
+      return result;
+    };
 
-    const updatePromises: Promise<any>[] = [];
-    for (let i = 0; i < newTasks.length; i++) {
-      if (newTasks[i].displayOrder !== i + 1 && !newTasks[i].id.startsWith('temp-')) {
-        newTasks[i] = { ...newTasks[i], displayOrder: i + 1 };
-        updatePromises.push(projectApi.updateTask(projectId, newTasks[i].id, { displayOrder: i + 1 }));
+    const tasksToMove = collectTaskAndChildren(draggedTaskId, tasks);
+
+    // ターゲットが移動対象の子タスクの場合はスキップ
+    if (tasksToMove.includes(effectiveTargetId)) {
+      setDraggedTaskId(null);
+      return;
+    }
+
+    const newTasks = [...tasks];
+
+    // 移動するタスクを抽出（順序を保持）
+    const movedTasks: ProjectTask[] = [];
+    for (const taskId of tasksToMove) {
+      const idx = newTasks.findIndex(t => t.id === taskId);
+      if (idx !== -1) {
+        movedTasks.push(newTasks[idx]);
       }
     }
 
-    setTasks(newTasks);
+    // 移動するタスクを元の配列から削除
+    const filteredTasks = newTasks.filter(t => !tasksToMove.includes(t.id));
+
+    // ターゲットの新しいインデックスを見つける
+    const newTargetIndex = filteredTasks.findIndex(t => t.id === effectiveTargetId);
+
+    // ターゲットの位置に挿入
+    filteredTasks.splice(newTargetIndex, 0, ...movedTasks);
+
+    const updatePromises: Promise<any>[] = [];
+    for (let i = 0; i < filteredTasks.length; i++) {
+      if (filteredTasks[i].displayOrder !== i + 1 && !filteredTasks[i].id.startsWith('temp-')) {
+        filteredTasks[i] = { ...filteredTasks[i], displayOrder: i + 1 };
+        updatePromises.push(projectApi.updateTask(projectId, filteredTasks[i].id, { displayOrder: i + 1 }));
+      }
+    }
+
+    setTasks(filteredTasks);
     setDraggedTaskId(null);
     await Promise.all(updatePromises);
   };
